@@ -42,7 +42,7 @@ import { compositePng } from '@/features/diagram/annotations/compositeExport';
 import { createUuid } from '@/shared/uuid';
 import {
   canvasTargetId, exportSession, findCanvasTarget, getArtifacts, getSketches, hydrateSession,
-  loadSelectedCheckoutId, saveSelectedCheckoutId, mergeTurnActivity, reconcileSessionTitles,
+  loadSelectedCheckoutId, saveSelectedCheckoutId, mergeTurnActivity, reconcileSessionTitles, mergeSessionPage,
 } from '@/features/conversation/sessionStore';
 import { ProjectPicker } from '@/features/projects/ProjectPicker';
 import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
@@ -114,6 +114,8 @@ import type { ImmersiveReportPlacement, SessionCreation } from './immersive/sess
 import { PaneMaximizeButton } from './PaneMaximizeButton';
 import { CONVERSATION_MIN_WIDTH, REPOSITORY_MIN_WIDTH, type Pane, type SideTab } from './panelLayout';
 
+type SessionRead = import('@/shared/types').SessionPage;
+
 interface Health {
   worktrees?: import('@/shared/types').WorktreeCapability;
   securityLevel?: SecurityLevel;
@@ -141,6 +143,7 @@ const SKETCH_ONLY_INSTRUCTION = 'I drew the attached sketch. Read it as my instr
 function updateArtifact(session: SessionSnapshot, id: string, update: (artifact: DiagramArtifact) => DiagramArtifact): SessionSnapshot {
   return {
     ...session,
+    canvases: session.canvases?.map(artifact => artifact.id === id ? update(artifact) : artifact),
     messages: session.messages.map((message) => message.role === 'assistant' ? {
       ...message,
       blocks: message.blocks.map((block) => block.kind === 'diagram' && block.artifact.id === id
@@ -196,6 +199,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [observerOpen, setObserverOpen] = useState(false);
   const [providerUpdateCount, setProviderUpdateCount] = useState(0);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
+  const [sessionList, setSessionList] = useState<{ scope: string; items: ArenaSessionSummary[] }>({ scope: '', items: [] });
   const workspaceMachineId = machineId && localMachineId && machineId !== localMachineId ? machineId : undefined;
   const workspace = useWorkspaceViews(projectId, workspaceMachineId);
   const { preferences, update: updatePreferences } = useDevicePreferences();
@@ -216,8 +220,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const selectedProject = useMemo(() => projects.find((project) => project.id === projectId), [projectId, projects]);
   const projectWorkspace = !sessionId && Boolean(selectedProject);
   const projectScope = JSON.stringify([machineId, projectId]);
+  const sessionChoices = useMemo(() => {
+    const choices = new Map((sessionList.scope === projectScope ? sessionList.items : []).map(item => [item.id, item]));
+    for (const summary of arena.machines.find(item => item.machine.id === machineId)?.sessions || []) {
+      if (summary.projectId === projectId && choices.has(summary.id) && summary.revision >= choices.get(summary.id)!.revision) choices.set(summary.id, summary);
+    }
+    for (const saved of sessions) {
+      if (saved.machineId !== machineId || saved.projectId !== projectId || (choices.get(saved.id)?.revision ?? -1) > saved.revision) continue;
+      choices.set(saved.id, { ...choices.get(saved.id), id: saved.id, title: saved.title, revision: saved.revision,
+        projectId: saved.projectId, execution: saved.execution, updatedAt: saved.updatedAt,
+        repositoryCheckoutIds: saved.repositories.map(item => item.checkoutId), primaryAgentId: saved.primaryAgentId,
+        agents: saved.participants.flatMap(item => item.kind === 'agent' ? [item] : []),
+      });
+    }
+    return [...choices.values()];
+  }, [arena.machines, machineId, projectId, projectScope, sessionList, sessions]);
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId) || projectWorkspace, sessionId,
-    session ? getArtifacts(session).length + getSketches(session).length > 0 : undefined, projectWorkspace ? projectScope : undefined);
+    session ? (session.history?.canvasIds.length ?? getArtifacts(session).length + getSketches(session).length) > 0 : undefined, projectWorkspace ? projectScope : undefined);
   const [projectCheckout, setProjectCheckout] = useState<{ scope: string; id: string }>();
   const projectCheckouts = useMemo(() => (selectedProject?.repositories || [])
     .filter(binding => binding.hostId === hostId)
@@ -276,6 +295,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const machineIdRef = useRef(machineId);
   machineIdRef.current = machineId;
   const mutationQueues = useRef(new Map<string, Promise<void>>());
+  const canvasLoads = useRef(new Map<string, Promise<import('@/shared/types').SessionCanvases>>());
   const annotationSaves = useRef(new Map<string, {
     sessionId: string;
     timer?: ReturnType<typeof setTimeout>;
@@ -517,14 +537,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     });
   }, [session, pendingAttachmentIds]);
 
-  const applyServerSnapshot = useCallback((snapshot: PublicSession, sourceMachineId = machineIdRef.current): SessionSnapshot => {
+  const applyServerSnapshot = useCallback((snapshot: PublicSession, sourceMachineId = machineIdRef.current, history?: SessionRead['history']): SessionSnapshot => {
     const pending = acceptanceChecks.current.get(snapshot.id);
     const accepted = pending && snapshot.messages.find((message) => message.role === 'user' && message.id === pending.messageId);
     if (accepted?.role === 'user') pending!.accept(accepted.turn?.runId);
     const current = sessionsRef.current;
     const prior = current.find((item) => item.id === snapshot.id);
     if (prior && prior.machineId === sourceMachineId && snapshot.revision < prior.revision) return prior;
-    const hydrated = { ...hydrateSession(snapshot, prior, workspace.getView(snapshot.id)), machineId: sourceMachineId };
+    const hydrated = { ...(history ? mergeSessionPage({ session: snapshot, history }, prior, workspace.getView(snapshot.id))
+      : hydrateSession(snapshot, prior, workspace.getView(snapshot.id))), machineId: sourceMachineId };
     const archivedRevision = reconciledArchiveRevisions.current.get(JSON.stringify([sourceMachineId, snapshot.id]));
     // Restore also records its revision here: an active snapshot at that revision is current.
     if (archivedRevision !== undefined && snapshot.revision < archivedRevision) return hydrated;
@@ -547,10 +568,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const refreshSession = useCallback(async (targetSessionId: string): Promise<SessionSnapshot | undefined> => {
     const sourceMachineId = machineId;
     try {
-      const response = await fetch(apiPath(`/api/sessions/${encodeURIComponent(targetSessionId)}`), { cache: 'no-store' });
-      const data = await response.json() as { session?: PublicSession; error?: string };
+      const response = await fetch(apiPath(`/api/sessions/${encodeURIComponent(targetSessionId)}?view=recent`), { cache: 'no-store' });
+      const data = await response.json() as Partial<SessionRead> & { error?: string };
       if (!response.ok || !data.session) return undefined;
-      return applyServerSnapshot(data.session, sourceMachineId);
+      return applyServerSnapshot(data.session, sourceMachineId, data.history);
     } catch {
       return undefined;
     }
@@ -568,8 +589,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (busy()) return; // The owning send/stream supplies snapshots while a turn is live.
     const prior = sessionsRef.current.find(item => item.id === sessionId);
     try {
-      const response = await fetch(apiPath(`/api/sessions/${sessionId}`), { cache: 'no-store' });
-      const data = await response.json() as { session?: PublicSession; error?: string };
+      const response = await fetch(apiPath(`/api/sessions/${sessionId}?view=recent`), { cache: 'no-store' });
+      const data = await response.json() as Partial<SessionRead> & { error?: string };
       if (navigationKeyRef.current !== navigationKey || machineIdRef.current !== machineId
         || busy() || sessionsRef.current.find(item => item.id === sessionId) !== prior) return;
       if (response.status === 404) {
@@ -583,7 +604,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         setNavigationRetry(value => value + 1);
         return;
       }
-      applyServerSnapshot(data.session, machineId);
+      applyServerSnapshot(data.session, machineId, data.history);
       setNavigationFailure(undefined);
       void recoverRuns.current(sessionId, undefined, true);
       dismissToast(`conversation-refresh:${sessionId}`);
@@ -791,17 +812,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       const targetApi = (path: string) => machineApiPath(path, targetMachineId, localMachineId);
       let saved: PublicSession | undefined;
+      let history: SessionRead['history'] | undefined;
       let targetProjectId: string | undefined;
       let prior: SessionSnapshot | undefined;
       if (location.kind === 'session') {
         prior = sessionsRef.current.find(item => item.id === location.sessionId);
-        const response = await fetch(targetApi(`/api/sessions/${location.sessionId}`), { cache: 'no-store', signal: controller.signal });
-        const data = await response.json() as { session?: PublicSession; error?: string };
+        const response = await fetch(targetApi(`/api/sessions/${location.sessionId}?view=recent`), { cache: 'no-store', signal: controller.signal });
+        const data = await response.json() as Partial<SessionRead> & { error?: string };
         if (!response.ok || !data.session) {
           throw new Error(response.status === 404 ? 'This conversation is unavailable. It may have been archived or deleted.'
             : data.error || 'Could not load this conversation.');
         }
         saved = data.session;
+        history = data.history;
         targetProjectId = saved.projectId;
       } else {
         targetProjectId = location.projectId;
@@ -819,17 +842,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (!sameScope) {
         setLoading(true);
         setProjectId(targetProjectId);
+        projectIdRef.current = targetProjectId;
         sessionsRef.current = [];
         setSessions([]);
         setRepositoryTree(undefined);
       }
       if (saved) {
         workspace.openInProject(targetProjectId, saved.id, undefined, targetMachineId === localMachineId ? undefined : targetMachineId);
-        // The project listing owns first hydration; later opens can refresh this exact session.
-        if (sameScope && !runsBySessionRef.current[saved.id] && !sendingSessions.current.has(saved.id)
+        // The selected conversation is usable before its project catalog finishes.
+        if ((!sameScope || !runsBySessionRef.current[saved.id] && !sendingSessions.current.has(saved.id)
           && !reconnectingRuns.current.has(saved.id) && !acceptanceChecks.current.has(saved.id)
-          && sessionsRef.current.find(item => item.id === saved.id) === prior && saved.revision >= (prior?.revision || 0)) {
-          applyServerSnapshot(saved, targetMachineId);
+          && sessionsRef.current.find(item => item.id === saved.id) === prior) && saved.revision >= (prior?.revision || 0)) {
+          applyServerSnapshot(saved, targetMachineId, history);
+          setLoading(false);
           void recoverRuns.current(saved.id, undefined, true);
         }
       }
@@ -850,38 +875,34 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!catalogReady || !workspace.ready || !navigationReady) return;
     let current = true;
-    setLoading(true);
+    if (!sessionsRef.current.some(item => item.id === focusedSessionIdRef.current)) setLoading(true);
     const query = projectId ? `projectId=${encodeURIComponent(projectId)}` : 'loose=true';
-    void fetch(apiPath(`/api/sessions?${query}`), { cache: 'no-store' })
-      .then(async (response) => {
-        const data = await response.json() as { sessions?: PublicSession[]; error?: string };
+    void fetch(apiPath(`/api/sessions?${query}&view=summary`), { cache: 'no-store' })
+      .then(async response => {
+        const data = await response.json() as { sessions?: ArenaSessionSummary[]; error?: string };
         if (!response.ok) throw new Error(data.error || 'Could not load sessions.');
         return data.sessions || [];
       })
-      .then((snapshots) => {
+      .then(summaries => {
         if (!current) return;
-        const prior = new Map(sessionsRef.current.map((item) => [item.id, item]));
-        const hydrated = snapshots.filter(snapshot => snapshot.revision >= (reconciledArchiveRevisions.current.get(
-          JSON.stringify([machineId, snapshot.id])) ?? -1)).map((snapshot) => ({
-          ...hydrateSession(snapshot, prior.get(snapshot.id), workspace.getView(snapshot.id)),
-          machineId,
-        }));
-        sessionsRef.current = hydrated;
-        setSessions(hydrated);
-        const retainedViewIds = workspace.reconcile(hydrated.map((item) => item.id));
-        panelLayout.reconcile(retainedViewIds);
+        const active = summaries.filter(item => item.revision >= (reconciledArchiveRevisions.current.get(JSON.stringify([machineId, item.id])) ?? -1));
+        setSessionList({ scope: JSON.stringify([machineId, projectId]), items: active });
+        const ids = new Set(active.map(item => item.id));
+        // Retain content already loaded by the URL resolver; the list contains no transcripts.
+        const retained = sessionsRef.current.filter(item => ids.has(item.id) && item.machineId === machineId && item.projectId === projectId);
+        sessionsRef.current = retained;
+        setSessions(retained);
+        panelLayout.reconcile(workspace.reconcile([...ids]));
         supersede('sessions-load');
         setLoading(false);
       })
       .catch((error: unknown) => {
         if (!current) return;
-        sessionsRef.current = [];
-        setSessions([]);
         notifyError(error, 'Sessions could not be loaded.', 'sessions-load');
         setLoading(false);
       });
     return () => { current = false; };
-  }, [apiPath, catalogReady, machineId, navigationReady, panelLayout.reconcile, projectId, workspace.getView, workspace.ready, workspace.reconcile]);
+  }, [apiPath, catalogReady, machineId, navigationReady, panelLayout.reconcile, projectId, workspace.ready, workspace.reconcile]);
 
   // Legacy `/` has no identity. Once its fallback is loaded, make future reloads deterministic.
   useEffect(() => {
@@ -912,6 +933,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         }
         if (loaded && owner.machine.id === machineId && focusedSessionIdRef.current === archived.id && navigationKeyRef.current.startsWith('/?')) {
           archivedFocus = { machineId: owner.machine.id, projectId: archived.projectId, sessionId: archived.id };
+        }
+        if (owner.machine.id === machineId && archived.projectId === projectId) {
+          setSessionList(current => current.items.some(item => item.id === archived.id)
+            ? { ...current, items: current.items.filter(item => item.id !== archived.id) } : current);
         }
         if (owner.machine.id === machineId && archived.projectId === projectId && loaded) {
           const next = sessionsRef.current.filter((item) => item.id !== archived.id);
@@ -961,6 +986,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session?.id) return;
     const canvasIds = [
+      ...(session.history?.canvasIds || []),
       ...getArtifacts(session).map((artifact) => artifact.id),
       ...getSketches(session).map((sketch) => sketch.id),
     ];
@@ -999,6 +1025,89 @@ export function AppShell({ children }: { children: ReactNode }) {
       return next;
     });
   }, []);
+
+  const loadEarlierMessages = useCallback(async () => {
+    const saved = sessionsRef.current.find(item => item.id === sessionId);
+    const before = saved?.history?.before;
+    if (!saved || !before) return;
+    const destination = navigationKeyRef.current;
+    const response = await fetch(apiPath(`/api/sessions/${saved.id}?view=recent&before=${encodeURIComponent(before)}`), { cache: 'no-store' });
+    const data = await response.json() as SessionRead & { error?: string };
+    if (!response.ok || !data.session || !data.history) throw new Error(data.error || 'Could not load earlier messages.');
+    if (navigationKeyRef.current !== destination || machineIdRef.current !== machineId) return;
+    mutateSession(saved.id, current => mergeSessionPage(data, current, undefined, before));
+  }, [apiPath, machineId, mutateSession, sessionId]);
+
+  const loadMessageDetails = useCallback(async (messageId: string) => {
+    const destination = navigationKeyRef.current;
+    const response = await fetch(apiPath(`/api/sessions/${sessionId}?view=message&messageId=${encodeURIComponent(messageId)}`), { cache: 'no-store' });
+    const data = await response.json() as { revision: number; message?: import('@/shared/types').ChatMessage; error?: string };
+    if (!response.ok || !data.message) throw new Error(data.error || 'Could not load message details.');
+    if (navigationKeyRef.current !== destination || machineIdRef.current !== machineId) return;
+    const message = data.message;
+    const current = sessionsRef.current.find(item => item.id === sessionId);
+    if (!current || data.revision < current.revision) throw new Error('This conversation changed. Load details again.');
+    mutateSession(current.id, saved => {
+      if (saved.revision > data.revision) return saved;
+      return hydrateSession({ ...saved, messages: saved.messages.map(item => item.id === message.id ? message : item),
+        history: saved.history ? { ...saved.history, deferredMessageIds: saved.history.deferredMessageIds.filter(id => id !== messageId) } : undefined,
+      }, saved);
+    });
+    return message;
+  }, [apiPath, machineId, mutateSession, sessionId]);
+
+  const loadCanvases = useCallback(async (targetSessionId: string) => {
+    const key = `${machineId}:${targetSessionId}`;
+    const existing = canvasLoads.current.get(key);
+    if (existing) return existing;
+    const operation = (async () => {
+      const response = await fetch(apiPath(`/api/sessions/${targetSessionId}?view=canvas`), { cache: 'no-store' });
+      const data = await response.json() as import('@/shared/types').SessionCanvases & { error?: string };
+      if (!response.ok || !data.canvases) throw new Error(data.error || 'Could not load canvases.');
+      if (machineIdRef.current !== machineId) return data;
+      mutateSession(targetSessionId, saved => saved.revision > data.revision ? saved : hydrateSession({ ...saved, ...data,
+        // A canvas read supplies no transcript or metadata revision.
+        revision: saved.revision,
+        history: saved.history ? { ...saved.history, canvasesLoaded: true } : undefined,
+      }, saved));
+      return data;
+    })();
+    canvasLoads.current.set(key, operation);
+    try { return await operation; } finally { canvasLoads.current.delete(key); }
+  }, [apiPath, machineId, mutateSession]);
+
+  useEffect(() => {
+    if (!session?.history || session.history.canvasesLoaded || !session.history.canvasIds.length || panelLayout.canvasHidden) return;
+    void loadCanvases(session.id).catch(error => notify({ key: `canvases:${session.id}`, tone: 'warning', persistent: true,
+      message: error instanceof Error ? error.message : 'Could not load canvases.',
+      actions: [{ label: 'Retry', onSelect: () => void loadCanvases(session.id).catch(error => notifyError(error, 'Could not load canvases.')) }],
+    }));
+  }, [loadCanvases, notify, notifyError, panelLayout.canvasHidden, session?.id, session?.revision, session?.history?.canvasesLoaded]);
+
+  const exportCompleteSession = async () => {
+    if (!session) return;
+    try {
+      if (!session.history) { exportSession(session); return; }
+      const response = await fetch(apiPath(`/api/sessions/${session.id}`), { cache: 'no-store' });
+      const data = await response.json() as { session?: PublicSession; error?: string };
+      if (!response.ok || !data.session) throw new Error(data.error || 'Could not export this session.');
+      exportSession(hydrateSession(data.session));
+    } catch (error) { notifyError(error, 'Could not export this session.'); }
+  };
+
+  // Immersive history has its own scrolling renderer and no desktop paging controls. Entering
+  // that view deliberately loads the selected complete transcript, preserving its existing UI.
+  useEffect(() => {
+    if (!immersiveActive || !session?.history) return;
+    const controller = new AbortController();
+    void fetch(apiPath(`/api/sessions/${session.id}`), { cache: 'no-store', signal: controller.signal })
+      .then(async response => {
+        const data = await response.json() as { session?: PublicSession; error?: string };
+        if (!response.ok || !data.session) throw new Error(data.error || 'Could not load immersive history.');
+        if (!controller.signal.aborted) applyServerSnapshot(data.session, machineId);
+      }).catch(error => { if (!controller.signal.aborted) notifyError(error, 'Could not load immersive history.'); });
+    return () => controller.abort();
+  }, [apiPath, applyServerSnapshot, immersiveActive, machineId, notifyError, session?.id, Boolean(session?.history)]);
 
 
   const createSession = useCallback(async (
@@ -1868,11 +1977,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const turnAgent = findAgentParticipant(session.participants, override?.participantId) || activeAgent;
     if (!turnAgent) return;
     const sentCanvasIds = [...pendingAttachmentIds];
-    const selected = structuredClone(sentCanvasIds.flatMap((id) => {
+    const selectedAtSend = structuredClone(sentCanvasIds.flatMap(id => {
       const canvas = findCanvasTarget(session, id);
       return canvas ? [canvas] : [];
     }));
-    const sentAnnotations = structuredClone(session.annotations);
+    const annotationsAtSend = structuredClone(session.annotations);
     // Reports and images belong to the composed draft; an Execute plan or Continue turn does not carry them.
     const sentReportIds = override ? [] : [...pendingReportIds];
     const filesSnapshot = immutableEvidence(override ? [] : pendingFilesRef.current[session.id] ?? []);
@@ -1886,9 +1995,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     const snapshotAtSend = snapshotRef.current;
     // A sketch, a report, or an image is itself the instruction, so an empty composer still makes a valid turn.
     const typed = (override?.text ?? composerDraft.getSnapshot()).trim();
-    const text = typed || (selected.some((canvas) => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION
-      : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : sentImages.length ? IMAGE_ONLY_INSTRUCTION : sentFiles.length ? FILE_ONLY_INSTRUCTION : '');
-    if (!text) return;
     const turnMode: AgentMode = override?.mode ?? mode;
     const isolationIssue = nativeClaudeIsolationIssue({ provider: turnAgent.provider, execution: session.execution, level: securityLevel, mode: turnMode, choice: session.instructions });
     if (isolationIssue) {
@@ -1909,6 +2015,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     let acceptedRunId: string | undefined;
     try {
       setRunOutcome(session.id);
+      const canvasData = selectedAtSend.length < sentCanvasIds.length ? await loadCanvases(session.id) : undefined;
+      const canvasSession = canvasData ? { ...session, ...canvasData } : session;
+      const selected = sentCanvasIds.flatMap(id => {
+        const canvas = selectedAtSend.find(item => canvasTargetId(item) === id) || findCanvasTarget(canvasSession, id);
+        return canvas ? [canvas] : [];
+      });
+      if (selected.length !== sentCanvasIds.length) throw new Error('Could not load all attached canvases. Your draft and attachments are kept. Reopen the canvas and retry.');
+      const sentAnnotations = { ...canvasSession.annotations, ...annotationsAtSend };
+      const text = typed || (selected.some(canvas => canvas.kind === 'sketch') ? SKETCH_ONLY_INSTRUCTION
+        : sentReportIds.length ? REPORT_ONLY_INSTRUCTION : sentImages.length ? IMAGE_ONLY_INSTRUCTION : sentFiles.length ? FILE_ONLY_INSTRUCTION : '');
+      if (!text) return;
       const imagePayload = await Promise.all(sentImages.map(prepareImageForSend));
       const attachmentPayload: DiagramMessageAttachment[] = [];
       let compositeWarning = false;
@@ -2195,7 +2312,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       setPreparingSends((current) => current.filter((id) => id !== session.id));
       if (reconnectAfterSend && machineIdRef.current === machineId && projectIdRef.current === projectId) void recoverRuns.current(session.id, acceptedRunId);
     }
-  }, [activeAgent, apiPath, applyServerSnapshot, composerDraft, consumeStream, dismissToast, draftIdentity, flushAnnotations, health, lifecycle.busy, machineId, mode, mutateSession, notify, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, projectId, putRun, recovery.busy, refreshSession, removeRun, reports.reports, repositoryFiles.activeFile, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
+  }, [activeAgent, apiPath, applyServerSnapshot, composerDraft, consumeStream, loadCanvases, dismissToast, draftIdentity, flushAnnotations, health, lifecycle.busy, machineId, mode, mutateSession, notify, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, projectId, putRun, recovery.busy, refreshSession, removeRun, reports.reports, repositoryFiles.activeFile, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
   const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
@@ -2237,21 +2354,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     const targetWorkspaceMachineId = targetMachine.machine.id !== localMachineId ? targetMachine.machine.id : undefined;
     workspace.openInProject(target.projectId, target.id, undefined, targetWorkspaceMachineId);
     navigateWorkspace({ sessionId: target.id, machineId: targetMachine.machine.id });
-    if (targetMachine.machine.id === machineId && target.projectId === projectId) {
-      void refreshSession(target.id).then((saved) => {
-        if (machineIdRef.current !== targetMachine.machine.id || projectIdRef.current !== target.projectId) return;
-        if (!saved) { notifyError(new Error('Could not load the saved conversation. Reload and try again.'), 'Could not open the session.'); return; }
-        void recoverRuns.current(target.id);
-      });
-      return;
-    }
+    if (targetMachine.machine.id === machineId && target.projectId === projectId) return;
     selectMachineCatalog(targetMachine);
     setLoading(true);
     setProjectId(target.projectId);
     sessionsRef.current = [];
     setSessions([]);
     setRepositoryTree(undefined);
-  }, [localMachineId, machineId, navigateWorkspace, notifyError, projectId, refreshSession, selectMachineCatalog, workspace.openInProject]);
+  }, [localMachineId, machineId, navigateWorkspace, projectId, selectMachineCatalog, workspace.openInProject]);
 
   const [launchFocus, setLaunchFocus] = useState<{ sessionId: string; request: string }>();
   const launchNavigation = useRef('');
@@ -2343,7 +2453,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     const hasSibling = owner?.sessions.some(item => item.projectId === inlineSetupRequest.projectId && item.id !== inlineSetupRequest.sessionId);
     if (arenaOpen || inlineSetupRequest.machineId !== machineId || inlineSetupRequest.projectId !== projectId) {
       setInlineSetupRequest(undefined);
-    } else if (hasSibling || sessions.length) {
+    } else if (hasSibling || sessionChoices.length) {
       setInlineSetupRequest(undefined);
     } else if (!loading && !sessionId && selectedProject && owner?.machine.state === 'online' && owner.snapshotFresh !== false
       && owner.archivedSessions.some(item => item.id === inlineSetupRequest.sessionId)) {
@@ -2351,7 +2461,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       launcher.openForProject(inlineSetupRequest.machineId, inlineSetupRequest.projectId, true);
       setInlineSetupRequest(undefined);
     }
-  }, [arena.machines, arenaOpen, inlineSetupRequest, launcher.openForProject, loading, machineId, panelLayout.showCanvas, projectId, selectedProject, sessionId, sessions.length]);
+  }, [arena.machines, arenaOpen, inlineSetupRequest, launcher.openForProject, loading, machineId, panelLayout.showCanvas, projectId, selectedProject, sessionId, sessionChoices.length]);
 
   const handleImmersiveActive = useCallback((active: boolean) => { if (!active) launcher.invalidateCapture(); setImmersiveActive(active); }, [launcher.invalidateCapture]);
 
@@ -2387,6 +2497,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         }
         sessionsRef.current = next;
         setSessions(next);
+        setSessionList(current => ({ ...current, items: current.items.filter(item => item.id !== target.id) }));
         if (focusedSessionIdRef.current === target.id) setRepositoryTree(undefined);
       }
       removeRun(target.id);
@@ -2533,7 +2644,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             ? data.recent.filter((run) => run.sessionId === openedSessionId).slice(-1) : [];
 
         const relevant: Array<{ run: RunDescriptor; session: SessionSnapshot }> = [];
-        for (const run of [...data.active, ...retained]) {
+        for (const run of [...data.active.filter(run => run.sessionId === openedSessionId
+          || sessionsRef.current.some(item => item.id === run.sessionId)), ...retained]) {
           // A local send already owns this session's response stream. Never replace its subscriber.
           if (runsBySessionRef.current[run.sessionId] || sendingSessions.current.has(run.sessionId)
             || attachmentControllers.has(run.runId) || completedRunIds.has(run.runId)
@@ -2544,15 +2656,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           let owningSession = sessionsRef.current.find((item) => item.id === run.sessionId);
           if (!owningSession) {
             try {
-              const sessionResponse = await fetch(apiPath(`/api/sessions/${encodeURIComponent(run.sessionId)}`), {
+              const sessionResponse = await fetch(apiPath(`/api/sessions/${encodeURIComponent(run.sessionId)}?view=recent`), {
                 cache: 'no-store', signal: discoveryController.signal,
               });
-              const sessionData = await sessionResponse.json().catch(() => ({})) as { session?: PublicSession; error?: string };
+              const sessionData = await sessionResponse.json().catch(() => ({})) as Partial<SessionRead> & { error?: string };
               if (discoveryController.signal.aborted) return;
               if (!sessionResponse.ok || !sessionData.session || sessionData.session.projectId !== projectId) {
                 attachmentControllers.delete(run.runId); continue;
               }
-              owningSession = applyServerSnapshot(sessionData.session);
+              owningSession = applyServerSnapshot(sessionData.session, machineId, sessionData.history);
             } catch (error) {
               attachmentControllers.delete(run.runId);
               if (!discoveryController.signal.aborted) notifyError(error, 'Could not recover that session.');
@@ -2726,14 +2838,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const immersiveMachine = arena.machines.find((entry) => entry.machine.id === machineId);
   // A turn another device started reaches this one only through the Arena poll. The server refuses
   // an archive during any live turn; this keeps the control from offering one.
-  const closeSessionDisabledReasons = Object.fromEntries(sessions.flatMap(item => {
+  const closeSessionDisabledReasons = Object.fromEntries(sessionChoices.flatMap(item => {
     const live = Boolean(runsBySession[item.id]) || preparingSends.includes(item.id) || reconnectingSends.includes(item.id)
       || immersiveMachine?.runs.active.some(run => run.sessionId === item.id);
     const reason = live ? 'Wait for this turn to finish.'
       : archivingSessionIds.includes(item.id) ? 'Archiving this session…' : undefined;
     return reason ? [[item.id, reason]] : [];
   }));
-  const archiveSessionDisabledReasons = Object.fromEntries(sessions.flatMap(item => {
+  const archiveSessionDisabledReasons = Object.fromEntries(sessionChoices.flatMap(item => {
     const reason = closeSessionDisabledReasons[item.id]
       || (immersiveMachine?.machine.state !== 'online' ? 'This execution machine is offline.' : undefined);
     return reason ? [[item.id, reason]] : [];
@@ -2741,7 +2853,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const archiveSessionDisabledReason = sessionId ? archiveSessionDisabledReasons[sessionId] : undefined;
   const canArchiveSession = Boolean(session) && !archiveSessionDisabledReason;
   const archiveOpenSession = async (targetSessionId = sessionId) => {
-    const target = sessions.find(item => item.id === targetSessionId);
+    const target = sessionChoices.find(item => item.id === targetSessionId);
     const targetMachineId = machineId || localMachineId;
     if (!target || !targetMachineId || archiveSessionDisabledReasons[target.id]) return false;
     // Nothing refetches an open session that another device changed; the Arena poll carries its newer revision.
@@ -2813,6 +2925,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Remounting its composer would autofocus it after a tab's Delete/archive restored header focus.
   const selectedDestinationLoaded = location.kind === 'session' && session?.id === location.sessionId
     && machineId === (location.machineId || localMachineId);
+  const openingSummary = location.kind === 'session' ? arena.machines
+    .find(item => item.machine.id === (location.machineId || localMachineId))?.sessions.find(item => item.id === location.sessionId) : undefined;
   const openingWorkspace = loading || (!arenaOpen && resolvedNavigation !== navigationKey && !selectedDestinationLoaded);
   const navigationError = !arenaOpen && (navigationFailure?.key === navigationKey ? navigationFailure.message
     : !openingWorkspace && location.kind === 'session' && !sessions.some(item => item.id === location.sessionId)
@@ -2861,7 +2975,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 />
                 <span className="breadcrumb-separator" aria-hidden="true">/</span>
                 <WorkspaceTabs
-                  sessions={sessions}
+                  sessions={sessionChoices}
                   openSessionIds={workspace.scope.openSessionIds}
                   focusedSessionId={sessionId}
                   runsBySession={runTabsBySession}
@@ -2887,7 +3001,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     }} />}
                   onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
                   worktrees={health?.worktrees}
-                  sessions={sessions}
+                  sessions={sessionChoices}
                   value={sessionId}
                   initialExecution={session?.execution}
                   executionHealth={health?.executions}
@@ -3159,7 +3273,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {Object.entries(LIGHT_THEMES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </NativeSelect>
             </FormControl>}
-            {!arenaOpen && session && <Button type="button" variant="text" color="inherit" onClick={() => exportSession(session)}>Export session</Button>}
+            {!arenaOpen && session && <Button type="button" variant="text" color="inherit" onClick={() => void exportCompleteSession()}>Export session</Button>}
             {!arenaOpen && session && (
               <Button
                 type="button" variant="text" color="inherit" disabled={!canArchiveSession} title={archiveSessionDisabledReason} onClick={() => {
@@ -3269,7 +3383,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         onClose={() => setProjectLogoTarget(undefined)} />}
 
       {openingWorkspace ? (
-        <div className="app-loading"><div className="brand-mark">C</div><p>Opening your code canvas…</p></div>
+        <div className="app-loading" role="status"><div className="brand-mark">C</div>
+          {openingSummary && <strong>{openingSummary.title}</strong>}
+          <p>{openingSummary ? 'Loading recent messages…' : 'Opening your code canvas…'}</p>
+        </div>
       ) : arenaOpen && health ? (
         <Arena
           machines={arena.machines}
@@ -3309,13 +3426,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="welcome-intro">
             <div className="brand-mark" aria-hidden="true">C</div>
             <span className="eyebrow">Your local workspace</span>
-            <h1>{sessions.length ? 'No open sessions' : 'Good ideas start here.'}</h1>
-            <p>{sessions.length
+            <h1>{sessionChoices.length ? 'No open sessions' : 'Good ideas start here.'}</h1>
+            <p>{sessionChoices.length
               ? 'Reopen a conversation from All sessions, or start something new.'
               : `Explore, plan, and build${selectedProject ? ` in ${selectedProject.name}` : ' with your agents'}. Choose your setup to get started.`}</p>
             {selectedProject && <Button variant="contained" onClick={() => launcher.openForProject(machineId!, selectedProject.id)}>New session</Button>}
           </div>
-          {!sessions.length && !selectedProject && <SessionCreationForm
+          {!sessionChoices.length && !selectedProject && <SessionCreationForm
             onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
             worktrees={health?.worktrees}
             key={projectId || 'loose'}
@@ -3377,6 +3494,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               visible={panelLayout.conversationShown}
               paneControl={paneControl('conversation', 'Conversation')}
               session={session}
+              onLoadEarlier={loadEarlierMessages}
+              onLoadMessage={loadMessageDetails}
               theme={theme}
               agents={agents}
               activeAgent={activeAgent}

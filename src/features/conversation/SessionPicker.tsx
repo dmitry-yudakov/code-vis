@@ -149,7 +149,7 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
 }
 
 export function SessionPicker({ sessions, value, onChange, onQueueSetup, archiveControl, ...creation }: SessionCreationProps & {
-  sessions: SessionSnapshot[];
+  sessions: Array<import('@/shared/types').ArenaSessionSummary | SessionSnapshot>;
   value?: string;
   onChange(value: string): void;
   onQueueSetup?(): void;
@@ -170,7 +170,8 @@ export function SessionPicker({ sessions, value, onChange, onQueueSetup, archive
           {!value && <option value="" disabled>{sessions.length ? 'Choose a session' : 'No sessions yet'}</option>}
           {sessions.map((session) => (
             <option value={session.id} key={session.id}>
-              {findAgentParticipant(session.participants, session.primaryAgentId)?.displayName || 'Agent'} · {session.title} · {session.execution === 'docker' ? 'Docker' : 'Local'}
+              {('agents' in session ? session.agents.find(agent => agent.id === session.primaryAgentId)?.displayName
+                : findAgentParticipant(session.participants, session.primaryAgentId)?.displayName) || 'Agent'} · {session.title} · {session.execution === 'docker' ? 'Docker' : 'Local'}
             </option>
           ))}
         </NativeSelect>

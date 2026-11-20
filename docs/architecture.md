@@ -268,9 +268,21 @@ closed and overflow views. Closing a view changes only the device workspace, usi
 selection and live-turn protection as keyboard Delete; it does not archive or delete a session.
 
 `src/features/conversation/sessionStore.ts` contains pure snapshot/canvas/export helpers. It
-does not persist conversation content. `AppShell` lists snapshots by project (or **No project**) with
-`GET /api/sessions`, hydrates one complete snapshot with `GET /api/sessions/[sessionId]`, and sends
-annotation, sketch, pin, roster, and main-agent operations to dedicated routes. Stale overwrite
+does not persist conversation content. `AppShell` lists compact summaries by project (or **No
+project**) with `GET /api/sessions?view=summary` and loads only the selected conversation through
+`GET /api/sessions/[sessionId]?view=recent`. The selected page can render before the list finishes.
+Pages contain at most 20 messages and 64 KiB of serialized UTF-8 message data; individual previews
+are at most 24 KiB. Session metadata and known canvas ids are separate from that message budget.
+`SessionPage.history` explicitly identifies the earlier-message cursor and deferred message/canvas
+content. Older pages use stable exclusive message ids and prepend without moving the reading
+anchor. Saved message details (`view=message&messageId=…`) and canvases (`view=canvas`) load on demand.
+Recent refreshes preserve overlapping loaded history and newer live activity. After a long absence,
+a disjoint recent window replaces the old window and retains its own cursor, so intervening history
+remains reachable. Failed page/detail reads retain the conversation and draft with Retry.
+The original complete GET stays authoritative for uncertain-send reconciliation and full export;
+entering immersive history explicitly loads that selected complete transcript for its existing
+scrolling controls. Partial snapshots are never persisted or exported as complete records.
+Annotation, sketch, pin, roster, and main-agent operations use dedicated routes. Stale overwrite
 revisions return 409 and trigger a refetch instead of silently replacing another client's work.
 
 The Arena subscribes to `GET /api/arena` with `Accept: application/x-ndjson`, receiving an initial

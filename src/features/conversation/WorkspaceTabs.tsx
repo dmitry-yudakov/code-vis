@@ -27,7 +27,7 @@ export function WorkspaceTabs({
   closeDisabledReasons = {},
   archiveDisabledReasons = {},
 }: {
-  sessions: SessionSnapshot[];
+  sessions: Pick<SessionSnapshot, 'id' | 'title'>[];
   openSessionIds: string[];
   focusedSessionId?: string;
   runsBySession: Record<string, WorkspaceRunState>;

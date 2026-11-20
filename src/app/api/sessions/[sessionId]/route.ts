@@ -4,6 +4,7 @@ import {
 } from '@/server/storage/sessionStore';
 import { publicError, safeJsonResponse, sessionArchivePermissionRequestSchema } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { sessionCanvases, sessionPage } from '@/shared/sessionPaging';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,24 @@ export async function GET(request: Request, context: SessionRouteContext): Promi
     const { sessionId } = await context.params;
     const config = getConfig();
     const session = await getSessionStore(config.dataDir, config.hostLabel).getSession(sessionId);
-    return safeJsonResponse({ session: publicSession(session) });
+    const snapshot = publicSession(session);
+    const query = new URL(request.url).searchParams;
+    const view = query.get('view');
+    if (view === 'recent') {
+      const before = query.get('before') || undefined;
+      if (before && !snapshot.messages.some(message => message.id === before)) {
+        return safeJsonResponse({ error: 'This history position is no longer available. Reopen the conversation.' }, { status: 409 });
+      }
+      return safeJsonResponse(sessionPage(snapshot, before));
+    }
+    if (view === 'message') {
+      const message = snapshot.messages.find(message => message.id === query.get('messageId'));
+      return message ? safeJsonResponse({ revision: snapshot.revision, message })
+        : safeJsonResponse({ error: 'This message is no longer available.' }, { status: 404 });
+    }
+    if (view === 'canvas') return safeJsonResponse(sessionCanvases(snapshot));
+    if (view) return safeJsonResponse({ error: 'Choose a supported session view.' }, { status: 400 });
+    return safeJsonResponse({ session: snapshot });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }

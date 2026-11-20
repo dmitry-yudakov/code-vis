@@ -151,6 +151,39 @@ describe('session snapshot and mutation routes', () => {
     routeState.runInputs = [];
   });
 
+  it('offers summary lists and projected pages/details while full reads remain authoritative', async () => {
+    const created = await createViaRoute('checkout-a');
+    const filename = path.join(routeState.dataDir, 'session-store-v2', 'sessions', `${created.id}.json`);
+    const stored = JSON.parse(await readFile(filename, 'utf8')) as DurableSession;
+    const human = stored.participants.find(item => item.kind === 'human')!;
+    stored.messages = Array.from({ length: 50 }, (_, index) => ({
+      id: crypto.randomUUID(), role: 'user', authorId: human.id, addressedParticipantId: stored.primaryAgentId,
+      text: `Saved question ${index}`, createdAt: stored.createdAt, status: 'sent', diagramAttachments: [],
+    }));
+    await writeFile(filename, JSON.stringify(stored));
+    const read = (query = '') => GET_SESSION(new Request(`http://localhost/api/sessions/${created.id}${query}`), context(created.id));
+    const summary = await GET_SESSIONS(new Request(`http://localhost/api/sessions?projectId=${created.projectId}&view=summary`));
+    const summaries = (await summary.json()).sessions;
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).not.toHaveProperty('messages');
+    expect(summaries[0]).not.toHaveProperty('repositories');
+    expect(summaries[0]).not.toHaveProperty('firstAcceptedAt');
+    const recent = await (await read('?view=recent')).json();
+    expect(recent.session.messages).toHaveLength(20);
+    expect(recent.history.before).toBe(stored.messages[30].id);
+    const earlier = await (await read(`?view=recent&before=${recent.history.before}`)).json();
+    expect(earlier.session.messages[0].id).toBe(stored.messages[10].id);
+    const detail = await (await read(`?view=message&messageId=${stored.messages[0].id}`)).json();
+    expect(detail.message.text).toBe('Saved question 0');
+    expect(detail).not.toHaveProperty('participants');
+    expect((await (await read()).json()).session.messages).toHaveLength(50);
+    expect((await read('?view=recent&before=missing')).status).toBe(409);
+    expect((await read('?view=message&messageId=missing')).status).toBe(404);
+    expect((await read('?view=invalid')).status).toBe(400);
+    expect(await (await read('?view=canvas')).json()).toEqual({ revision: stored.revision,
+      canvases: [], sketches: [], annotations: {}, pinnedDiagramIds: [] });
+  });
+
   it('changes archive permission during reserved work without requiring a transcript revision', async () => {
     const session = await createViaRoute('checkout-a');
     const runId = crypto.randomUUID();

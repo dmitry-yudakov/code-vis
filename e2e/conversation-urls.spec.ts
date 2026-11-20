@@ -1,6 +1,7 @@
 import { fulfillArenaSnapshot } from './arena-stream';
 import { expect, test, type APIRequestContext, type Page } from './arena-stream';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
+import { sessionPage } from '../src/shared/sessionPaging';
 
 const WORKSPACE_KEY = 'code-ai:device:v1:workspace';
 const href = (session: PublicSession) => `/?session=${session.id}`;
@@ -143,10 +144,10 @@ test('a delayed activation snapshot cannot erase a send that starts while it is 
   let entered!: () => void;
   const pending = new Promise<void>(resolve => { entered = resolve; });
   const gate = new Promise<void>(resolve => { releaseSnapshot = resolve; });
-  await page.route(`**/api/sessions/${session.id}`, async route => {
+  await page.route(`**/api/sessions/${session.id}?view=recent`, async route => {
     entered();
     await gate;
-    await route.fulfill({ json: { session } });
+    await route.fulfill({ json: sessionPage(session) });
   });
   let releaseSend!: () => void;
   const sendGate = new Promise<void>(resolve => { releaseSend = resolve; });
@@ -290,9 +291,9 @@ test('activation fetches current messages without replacing the unsent draft, an
     createdAt: new Date().toISOString(), text: 'Saved by another browser', status: 'sent', diagramAttachments: [], mode: 'ask' });
   let fail = true;
   let reads = 0;
-  await page.route(`**/api/sessions/${session.id}`, async route => {
+  await page.route(`**/api/sessions/${session.id}?view=recent`, async route => {
     reads++;
-    await route.fulfill(fail ? { status: 503, json: { error: 'Temporary fixture failure' } } : { json: { session: newer } });
+    await route.fulfill(fail ? { status: 503, json: { error: 'Temporary fixture failure' } } : { json: sessionPage(newer) });
   });
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByRole('region', { name: 'Notifications' })).toContainText('Could not refresh this conversation');
@@ -311,10 +312,10 @@ test('a delayed conversation response cannot replace a later destination', async
   const gate = new Promise<void>(resolve => { release = resolve; });
   let entered!: () => void;
   const pending = new Promise<void>(resolve => { entered = resolve; });
-  await page.route(`**/api/sessions/${first.session.id}`, async route => {
+  await page.route(`**/api/sessions/${first.session.id}?view=recent`, async route => {
     entered();
     await gate;
-    await route.fulfill({ json: { session: first.session } }).catch(() => {});
+    await route.fulfill({ json: sessionPage(first.session) }).catch(() => {});
   });
   await page.goto(href(first.session));
   await pending;
@@ -337,8 +338,8 @@ test('an explicit host id canonicalizes away and an attached executor retains it
   const remoteSession = { ...session, id: '99999999-9999-4999-8999-999999999999' };
   remote.sessions = [{ ...remote.sessions.find(item => item.id === session.id)!, id: remoteSession.id }];
   await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: { ...snapshot, machines: [...snapshot.machines, remote] } }));
-  await page.route(`**/api/machines/${remoteId}/sessions/${remoteSession.id}`, route => route.fulfill({ json: { session: remoteSession } }));
-  await page.route(`**/api/machines/${remoteId}/sessions?*`, route => route.fulfill({ json: { sessions: [remoteSession] } }));
+  await page.route(`**/api/machines/${remoteId}/sessions/${remoteSession.id}?view=recent`, route => route.fulfill({ json: sessionPage(remoteSession) }));
+  await page.route(`**/api/machines/${remoteId}/sessions?*`, route => route.fulfill({ json: { sessions: remote.sessions } }));
   await page.route(`**/api/machines/${remoteId}/agent/runs*`, route => route.fulfill({ json: { active: [], recent: [] } }));
   await page.goto(`/?session=${remoteSession.id}&machine=${remoteId}`);
   await expect(page.getByRole('combobox', { name: 'All sessions', exact: true })).toHaveValue(remoteSession.id);

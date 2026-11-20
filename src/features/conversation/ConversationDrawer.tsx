@@ -54,7 +54,7 @@ function ConversationStarters({ draft, onChoose }: { draft: DraftSource; onChoos
 }
 
 export function ConversationDrawer({
-  open, visible = open, session, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
+  open, visible = open, session, onLoadEarlier, onLoadMessage, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
   turn, liveMessageId, liveState, permissionFeedback, onRefreshPermissions, retryBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
   agentChoice, onAgentChoiceChange, onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
@@ -73,6 +73,8 @@ export function ConversationDrawer({
   permissionFeedback?: Record<string, PermissionFeedback>;
   onRefreshPermissions?(): void;
   session?: SessionSnapshot;
+  onLoadEarlier?(): Promise<void>;
+  onLoadMessage?(messageId: string): Promise<import('@/shared/types').ChatMessage | undefined>;
   theme: ThemeName;
   focusRequest?: string;
   onFocusRequestHandled?(): void;
@@ -137,6 +139,9 @@ export function ConversationDrawer({
   onOpenReports?(): void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const prepend = useRef<{ key: string; height: number; top: number } | undefined>(undefined);
+  const [historyLoad, setHistoryLoad] = useState<{ key: string; busy?: boolean; error?: string }>();
+  const [messageLoads, setMessageLoads] = useState<Record<string, { busy?: boolean; error?: string }>>({});
   const positions = useRef(new Map<string, { top: number; follow: boolean }>());
   const following = useRef(true);
   const navigationScrollTop = useRef<number | undefined>(undefined);
@@ -145,6 +150,38 @@ export function ConversationDrawer({
   const [starterFocus, setStarterFocus] = useState<string>();
   const [reviewRequest, setReviewRequest] = useState<{ id: string; revision: number; scope: string }>();
   const key = `${session?.machineId || ''}:${session?.id || ''}`;
+  useLayoutEffect(() => {
+    const anchor = prepend.current;
+    const scroll = scrollRef.current;
+    if (!anchor || !scroll) return;
+    if (anchor.key === key) {
+      scroll.scrollTop = anchor.top + scroll.scrollHeight - anchor.height;
+      navigationScrollTop.current = scroll.scrollTop;
+      positions.current.set(key, { top: scroll.scrollTop, follow: false });
+    }
+    prepend.current = undefined;
+  }, [key, session?.messages[0]?.id]);
+  const loadEarlier = async () => {
+    if (!onLoadEarlier || historyLoad?.key === key && historyLoad.busy) return;
+    const scroll = scrollRef.current;
+    if (scroll) prepend.current = { key, height: scroll.scrollHeight, top: scroll.scrollTop };
+    following.current = false;
+    setHistoryLoad({ key, busy: true });
+    try { await onLoadEarlier(); setHistoryLoad({ key }); }
+    catch (error) {
+      prepend.current = undefined;
+      setHistoryLoad({ key, error: error instanceof Error ? error.message : 'Could not load earlier messages.' });
+    }
+  };
+  const loadMessage = async (id: string) => {
+    const loadKey = `${key}:${id}`;
+    if (!onLoadMessage || messageLoads[loadKey]?.busy) return;
+    setMessageLoads(current => ({ ...current, [loadKey]: { busy: true } }));
+    try { await onLoadMessage(id); setMessageLoads(current => ({ ...current, [loadKey]: {} })); }
+    catch (error) { setMessageLoads(current => ({ ...current, [loadKey]: {
+      error: error instanceof Error ? error.message : 'Could not load message details.',
+    } })); }
+  };
   const activitySignature = `${session?.messages.map(message => `${message.id}:${message.status}:${message.role === 'user' ? message.turn?.sequence || 0 : ''}`).join('|')}|${turn?.sequence || 0}|${preview.length}|${toolActivity.length}`;
   const jump = () => {
     navigationScrollTop.current = undefined;
@@ -202,13 +239,23 @@ export function ConversationDrawer({
   for (const [kind, ids] of [['user message', stops.users], ['response', stops.responses]] as const) {
     ids.forEach((id, index) => navigation.set(id, <MessageNavigation kind={kind} previous={ids[index - 1]} next={ids[index + 1]} onNavigate={navigate} />));
   }
-  const renderMessage = (message: NonNullable<typeof session>['messages'][number]) => <ChatMessage
+  const renderMessage = (message: NonNullable<typeof session>['messages'][number]) => <><ChatMessage
     message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
     navigation={navigation.get(`message:${message.id}`)}
     running={running} liveState={message.id === liveMessageId ? liveState || 'running' : undefined}
-    onEditQueuedMessage={message.id === liveMessageId && message.role === 'user' && message.turn?.lifecycle === 'queued' ? onEditQueuedMessage : undefined}
+    onEditQueuedMessage={message.id === liveMessageId && message.role === 'user' && message.turn?.lifecycle === 'queued' && !session?.history?.deferredMessageIds.includes(message.id) ? onEditQueuedMessage : undefined}
     executePlanBlocked={nativeClaudeIsolationIssue({ provider: agents.find(agent => agent.id === message.authorId)?.provider || 'claude', execution: session?.execution, level: securityLevel, mode: 'agent', choice: session?.instructions })}
-    onSelectDiagram={onSelectDiagram} onRetry={retryBlocked ? undefined : onRetry} onExecutePlan={message.id === lastMessage?.id ? onExecutePlan : undefined} />;
+    onSelectDiagram={onSelectDiagram}
+    detailsDeferred={session?.history?.deferredMessageIds.includes(message.id)}
+    onRetry={retryBlocked || session?.history?.deferredMessageIds.includes(message.id) ? undefined : onRetry}
+    onExecutePlan={message.id === lastMessage?.id && !session?.history?.deferredMessageIds.includes(message.id) ? onExecutePlan : undefined} />
+    {session?.history?.deferredMessageIds.includes(message.id) && onLoadMessage && <div style={{ padding: '0 12px 8px' }}>
+      <Button disabled={messageLoads[`${key}:${message.id}`]?.busy} onClick={() => void loadMessage(message.id)}>
+        {messageLoads[`${key}:${message.id}`]?.busy ? 'Loading message details…' : messageLoads[`${key}:${message.id}`]?.error ? 'Retry message details' : 'Load message details'}
+      </Button>
+      {messageLoads[`${key}:${message.id}`]?.error && <p role="alert">{messageLoads[`${key}:${message.id}`].error}</p>}
+    </div>}
+    </>;
   return (
     <Paper component="aside" square variant="elevation" elevation={0} className="conversation-drawer" aria-label="Conversation">
       <header>
@@ -249,13 +296,21 @@ export function ConversationDrawer({
           positions.current.set(key, { top: scrollRef.current?.scrollTop || 0, follow: false });
         }
       }}>
+        {session?.history?.before && onLoadEarlier && <div style={{ padding: '8px 12px' }}>
+          <Button disabled={historyLoad?.key === key && historyLoad.busy} onClick={() => void loadEarlier()}>
+            {historyLoad?.key === key && historyLoad.busy ? 'Loading earlier messages…' : historyLoad?.key === key && historyLoad.error ? 'Retry earlier messages' : 'Load earlier messages'}
+          </Button>
+          {historyLoad?.key === key && historyLoad.error && <p role="alert">{historyLoad.error}</p>}
+        </div>}
         {session?.messages.map(message => {
           if (message.role === 'assistant' && canonicalIds.has(message.id)) return null;
           const record = recordFor(message);
           return <div key={message.id} data-message-id={message.id}>
             {recovery?.checkpoint?.messageId === message.id && <TurnCheckpoint controls={recovery} />}
             {renderMessage(message)}
+
             {record && <TurnActivity turn={record} agentName={agents.find(agent => agent.id === record.participantId)?.displayName || 'Agent'}
+              onLoadDetails={session.history?.deferredMessageIds.includes(message.id) ? () => void loadMessage(message.id) : undefined}
               renderNavigation={id => navigation.get(id)}
               permissions={record.runId === turn?.runId ? permissions : []} onReview={id => setReviewRequest({ id, revision: Date.now(), scope: `${key}:${turn?.runId || ""}` })}
               renderFinal={id => { const final = session.messages.find(item => item.id === id); return final ? renderMessage(final) : null; }} />}

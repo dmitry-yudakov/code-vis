@@ -1,5 +1,5 @@
 import type {
-  ArenaMachineSnapshot, CanvasTarget, SessionSnapshot, DiagramArtifact, PublicSession, SketchCanvas,
+  ArenaMachineSnapshot, CanvasTarget, SessionSnapshot, DiagramArtifact, PublicSession, SketchCanvas, SessionPage,
 } from '@/shared/types';
 import { boundSessionActivity, type TurnRecord } from '@/shared/turnActivity';
 
@@ -17,10 +17,11 @@ export function saveSelectedCheckoutId(checkoutId: string, storage: Storage = lo
   storage.setItem(activeCheckoutKey(machineId), checkoutId);
 }
 
-export function getArtifacts(session: Pick<SessionSnapshot, 'messages'>): DiagramArtifact[] {
-  return session.messages.flatMap((message) => message.role === 'assistant'
+export function getArtifacts(session: Pick<SessionSnapshot, 'messages'> & Partial<Pick<SessionSnapshot, 'canvases'>>): DiagramArtifact[] {
+  const artifacts = session.messages.flatMap((message) => message.role === 'assistant'
     ? message.blocks.flatMap((block) => block.kind === 'diagram' ? [block.artifact] : [])
     : []);
+  return [...new Map([...(session.canvases || []), ...artifacts].map(artifact => [artifact.id, artifact])).values()];
 }
 
 export function getSketches(session: Pick<SessionSnapshot, 'sketches'>): SketchCanvas[] {
@@ -57,7 +58,7 @@ export function mergeTurnActivity(session: SessionSnapshot, turn: TurnRecord): S
 }
 
 export function hydrateSession(
-  snapshot: PublicSession,
+  snapshot: PublicSession & Partial<Pick<SessionSnapshot, 'history' | 'canvases'>>,
   prior?: SessionSnapshot,
   device?: Partial<SessionHydrationState>,
 ): SessionSnapshot {
@@ -86,6 +87,7 @@ export function hydrateSession(
   }
   base.messages = boundSessionActivity(base.messages);
   const canvasIds = new Set([
+    ...(snapshot.history?.canvasIds || []),
     ...getArtifacts(base).map((artifact) => artifact.id),
     ...getSketches(base).map((sketch) => sketch.id),
   ]);
@@ -112,6 +114,52 @@ export function hydrateSession(
   };
 }
 
+/** A history page can add older messages, never replace newer metadata, live activity or edits. */
+export function mergeSessionPage(
+  page: SessionPage, prior?: SessionSnapshot, device?: Partial<SessionHydrationState>, before?: string,
+): SessionSnapshot {
+  if (before) {
+    if (!prior?.history || prior.history.before !== before) return prior!;
+    const known = new Set(prior.messages.map(message => message.id));
+    const added = page.session.messages.filter(message => !known.has(message.id));
+    return hydrateSession({ ...prior, messages: [...added, ...prior.messages], history: {
+      ...prior.history, before: page.history.before,
+      deferredMessageIds: [...new Set([...prior.history.deferredMessageIds,
+        ...page.history.deferredMessageIds.filter(id => !known.has(id))])],
+    } }, prior, device);
+  }
+  if (prior && page.session.revision < prior.revision) return prior;
+  const deferred = new Set(page.history.deferredMessageIds);
+  const priorDeferred = new Set(prior?.history?.deferredMessageIds);
+  const incoming = new Set(page.session.messages.map(message => message.id));
+  const messages = page.session.messages.map(message => {
+    const previous = prior?.messages.find(item => item.id === message.id);
+    if (!previous || !deferred.has(message.id) || priorDeferred.has(message.id)) return message;
+    const unchanged = message.role === 'assistant' && previous.role === 'assistant'
+      || message.role === 'user' && previous.role === 'user' && message.text === previous.text
+        && message.turn?.sequence === previous.turn?.sequence;
+    if (!unchanged) return message;
+    deferred.delete(message.id);
+    return previous;
+  });
+  const overlaps = prior?.messages.some(message => incoming.has(message.id));
+  // After a long absence, a disjoint recent window starts a fresh contiguous range. Its cursor
+  // can recover every older message; retaining a disconnected prefix would hide the gap.
+  const retained = prior?.messages.filter(message => !incoming.has(message.id)
+    && (overlaps || message.role === 'user' && message.status === 'sending')) || [];
+  const optimistic = retained.filter(message => message.role === 'user' && message.status === 'sending');
+  const older = retained.filter(message => !optimistic.includes(message));
+  const sameCanvases = Boolean(prior && JSON.stringify(page.history.canvasIds) === JSON.stringify(prior.history?.canvasIds));
+  const history = { ...page.history,
+    before: prior && !prior.history && overlaps ? undefined : older.length ? prior?.history?.before : page.history.before,
+    deferredMessageIds: [...new Set([...older.filter(message => priorDeferred.has(message.id)).map(message => message.id), ...deferred])],
+    canvasesLoaded: sameCanvases && prior?.revision === page.session.revision ? prior?.history?.canvasesLoaded ?? false : false,
+  };
+  return hydrateSession({ ...page.session, messages: [...older, ...messages, ...optimistic], history,
+    canvases: prior?.canvases, sketches: prior?.sketches || [], annotations: prior?.annotations || {},
+  }, prior, device);
+}
+
 /** Merge metadata without claiming the rest of a newer full session has been fetched. */
 export function reconcileSessionTitles(sessions: SessionSnapshot[], machines: ArenaMachineSnapshot[], localMachineId?: string): SessionSnapshot[] {
   let changed = false;
@@ -131,8 +179,11 @@ export function reconcileSessionTitles(sessions: SessionSnapshot[], machines: Ar
 }
 
 export function serializeSessionExport(session: SessionSnapshot, exportedAt = new Date().toISOString()) {
+  if (session.history) throw new Error('Load the complete session before exporting.');
   const participantById = new Map(session.participants.map((participant) => [participant.id, participant]));
   const {
+    history: _history,
+    canvases: _canvases,
     machineId: _machineId,
     titleRevision: _titleRevision,
     addressedAgentId: _addressedAgentId,

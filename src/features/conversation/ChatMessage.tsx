@@ -32,8 +32,9 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onEditQueuedMessage, navigation }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, detailsDeferred, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onEditQueuedMessage, navigation }: {
   message: ChatMessageType;
+  detailsDeferred?: boolean;
   theme: ThemeName;
   participants: Participant[];
   activeDiagramId?: string;
@@ -67,6 +68,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
             {navigation}
           </Box>
         </div>
+        {detailsDeferred && <small>Message preview · details available below</small>}
         {edit ? <Box component="form" sx={{ display: 'grid', gap: 1, my: 1 }} onSubmit={async event => {
           event.preventDefault();
           if (saving || !edit.text.trim() || !onEditQueuedMessage) return;
@@ -88,7 +90,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
         {message.diagramAttachments.length > 0 && <div className="message-attachments">{attachmentSummary(message.diagramAttachments)}</div>}
         {message.reportAttachments?.length ? <div className="message-attachments report">{reportAttachmentSummary(message.reportAttachments)}</div> : null}
         {message.imageAttachments?.length ? <div className="message-attachments image">{imageAttachmentSummary(message.imageAttachments)}</div> : null}
-        {message.fileAttachments?.map((file, index) => <Disclosure className="message-attachments" key={index} title={<>{file.name} · {file.bytes} bytes</>}>
+        {!detailsDeferred && message.fileAttachments?.map((file, index) => <Disclosure className="message-attachments" key={index} title={<>{file.name} · {file.bytes} bytes</>}>
           <pre>{file.text}</pre></Disclosure>)}
         {(liveState || message.status !== 'sent') && (
           <div className="message-state">
@@ -107,6 +109,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, run
       <div className="message-meta">
         <span>{author?.displayName || 'Agent'}</span>
       </div>
+      {detailsDeferred && <small>Message preview · details available below</small>}
       <div className="assistant-blocks">
         {message.blocks.map((block, index) => {
           if (block.kind === 'diagram') return (

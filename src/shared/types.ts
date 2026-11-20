@@ -612,6 +612,10 @@ export interface ArenaSessionSummary {
  * as session content and can be reconstructed after a refetch.
  */
 export interface SessionSnapshot extends PublicSession {
+  /** Explicitly partial browser history. Absent only for a complete canonical snapshot. */
+  history?: SessionHistoryState;
+  /** Canvas artifacts fetched independently of the paged transcript. Device memory only. */
+  canvases?: DiagramArtifact[];
   /** An Arena title/permission/check update may be newer than this full snapshot. Device memory only. */
   titleRevision?: number;
   /** Executor selected by this browser view; never persisted in the canonical session. */
@@ -623,6 +627,28 @@ export interface SessionSnapshot extends PublicSession {
   previousDiagramId?: string;
   /** Mode pre-selected for the next message. Sessions themselves stay mode-agnostic. */
   defaultMode?: AgentMode;
+}
+
+export interface SessionHistoryState {
+  /** Stable exclusive cursor; absent when the beginning has been loaded. */
+  before?: string;
+  deferredMessageIds: string[];
+  canvasIds: string[];
+  canvasesLoaded: boolean;
+}
+
+/** A projected session must never be used as proof of message absence or as a complete export. */
+export interface SessionPage {
+  session: PublicSession;
+  history: SessionHistoryState;
+}
+
+export interface SessionCanvases {
+  revision: number;
+  canvases: DiagramArtifact[];
+  sketches: SketchCanvas[];
+  annotations: Record<string, DiagramAnnotation>;
+  pinnedDiagramIds: string[];
 }
 
 export type AgentPhase =

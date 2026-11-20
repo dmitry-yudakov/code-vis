@@ -28,7 +28,12 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const config = getConfig();
     await autoArchiveSessions(config);
-    const sessions = await getSessionStore(config.dataDir, config.hostLabel).listSessions({ projectId, loose });
+    const store = getSessionStore(config.dataDir, config.hostLabel);
+    if (query.get('view') === 'summary') {
+      const sessions = (await store.listSessionSummaries()).filter(session => loose ? !session.projectId : !projectId || session.projectId === projectId);
+      return safeJsonResponse({ sessions: sessions.map(({ repositories: _repositories, firstAcceptedAt: _first, ...summary }) => summary) });
+    }
+    const sessions = await store.listSessions({ projectId, loose });
     return safeJsonResponse({ sessions: sessions.map(publicSession) });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });

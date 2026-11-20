@@ -20,10 +20,11 @@ export function StreamingMarkdown({ text }: { text: string }) {
     pre: CodeBlock,
   }}>{text}</ReactMarkdown></div>;
 }
-export function TurnActivity({ turn, agentName, permissions, onReview, renderFinal, renderNavigation }: {
+export function TurnActivity({ turn, agentName, permissions, onReview, renderFinal, renderNavigation, onLoadDetails }: {
   turn: TurnRecord; agentName: string; permissions: PendingPermission[];
   onReview(id: string): void; renderFinal(id: string): ReactNode;
   renderNavigation?(id: string): ReactNode;
+  onLoadDetails?(): void;
 }) {
   const renderedFinal = new Set<string>();
   return <div className="turn-activity" aria-label="Turn activity">
@@ -63,7 +64,8 @@ export function TurnActivity({ turn, agentName, permissions, onReview, renderFin
         </span>}>
           <p>{name} · {statusLabels[entry.status]}{entry.actor?.parentToolId ? ` · delegated by ${entry.actor.parentToolId}` : ''}</p>
           {(['input', 'output', 'diff', 'error'] as const).map(field => entry[field] !== undefined && <div key={field} className={field === 'error' ? 'tool-error' : undefined}><strong>{field === 'input' ? 'Arguments' : field === 'diff' ? 'Diff' : field === 'error' ? 'Error' : 'Output'}</strong><pre>{entry[field]}</pre></div>)}
-          {entry.input === undefined && entry.output === undefined && entry.diff === undefined && entry.error === undefined && <p>Details were not supplied by the provider.</p>}
+          {entry.input === undefined && entry.output === undefined && entry.diff === undefined && entry.error === undefined
+            && (onLoadDetails ? <Button onClick={onLoadDetails}>Load message details</Button> : <p>Details were not supplied by the provider.</p>)}
           {entry.exitCode !== undefined && <span>Exit {entry.exitCode} </span>}{entry.durationMs !== undefined && <span>{entry.durationMs} ms</span>}
           {entry.omittedBytes ? <p><small>{entry.omittedBytes} bytes omitted</small></p> : null}
         </Disclosure>

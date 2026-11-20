@@ -29,12 +29,20 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-18. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-20. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 152](stories/STORY-20261120-incremental-session-loading.md) — conversations
+  open from compact summaries and recent messages, with older history, saved message details and
+  canvases loaded on demand. Drafts, approvals, export and deferred canvas/spatial state are
+  preserved. All 125 focused unit checks, 49 distinct production-browser cases, TypeScript,
+  isolated build, both-theme desktop/phone screenshot inspection and independent review pass;
+  four unchanged-head browser failures and one existing full-suite font assertion are recorded in
+  the story. A throttled phone-width journey transfers 60 KB of recent JSON instead of 326 KB for
+  the complete fixture, using one session read. The running application has not been rebuilt or restarted.
 - **In flight:** [Story 151](stories/STORY-20261120-mcp-external-observer.md) — scoped MCP project/session
   reads, session creation/archiving, participant additions and addressed sends through a stdio adapter,
   with an external monitoring example. Focused tests, SDK runtime journeys, TypeScript, isolated build

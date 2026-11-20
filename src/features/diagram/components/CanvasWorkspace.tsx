@@ -164,6 +164,8 @@ export function CanvasWorkspace({
             onSnapshot={handleSnapshot}
             onArtifactError={handleError}
           />
+        ) : session.history && !session.history.canvasesLoaded && session.history.canvasIds.length > 0 ? (
+          <div className="empty-canvas-content"><p role="status">Loading canvas…</p></div>
         ) : (
           <div className="empty-canvas-content">
             <div className="welcome-symbol" aria-hidden="true"><ShellIcon name="canvas" /></div>
