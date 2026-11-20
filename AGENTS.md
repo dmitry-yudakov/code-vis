@@ -35,6 +35,11 @@ Updated 2026-11-20. When a story ships, change the line that names it; each stor
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 41 follow-up](stories/STORY-20260904-authenticated-devices.md) — personal-device
+  pairing uses eight letters as `ABCD-EFGH`, with legacy-code compatibility and existing expiry,
+  single-use and five-guess limits. All 29 focused unit checks, four production-browser journeys,
+  TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent review
+  pass. The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 152](stories/STORY-20261120-incremental-session-loading.md) — conversations
   open from compact summaries and recent messages, with older history, saved message details and
   canvases loaded on demand. Drafts, approvals, export and deferred canvas/spatial state are

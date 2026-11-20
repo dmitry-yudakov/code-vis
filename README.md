@@ -177,8 +177,9 @@ the remote device's pairing screen:
 npm run device:pair
 ```
 
-The code has 80 bits of randomness, expires after ten minutes, works once, and is replaced when a
-new code is issued. Five failed attempts invalidate it. Pairing creates a one-year opaque device
+The code has eight random letters in two groups, like `ABCD-EFGH` (about 36.7 bits of randomness).
+Case, spaces and hyphens do not matter. It expires after ten minutes, works once, and is replaced
+when a new code is issued. Five failed attempts invalidate it. Pairing creates a one-year opaque device
 credential in a host-only `HttpOnly`, `Secure`, `SameSite=Strict` cookie; only its salted digest is
 stored in `CODEAI_DATA_DIR/device-auth-v1.json`. Use **Devices** in the header to see paired-device
 summaries, revoke another device, or sign out this one. Revocation is checked on every API request.

@@ -440,8 +440,10 @@ request with a process-random internal transport marker. Thus accidentally runni
 Mutation routes additionally require the browser `Origin` to equal the configured public origin.
 
 `src/server/devices/deviceAuthStore.ts` owns `CODEAI_DATA_DIR/device-auth-v1.json`, independently of
-canonical project/session records. `device:pair` writes one salted digest for an 80-bit,
-ten-minute, single-use challenge. A successful exchange consumes it and creates a one-year opaque
+canonical project/session records. `device:pair` writes one salted digest for eight uniformly random
+letters (24 choices per letter, about 36.7 bits), displayed as `ABCD-EFGH`. The challenge expires
+after ten minutes or five failed guesses and works once; outstanding legacy sixteen-character
+codes remain valid until expiry. A successful exchange consumes it and creates a one-year opaque
 device credential; the record stores only the device id/label, timestamps, salt, and digest. The
 file is atomically replaced as `0600`, the data directory is `0700`, failed guesses are bounded,
 and malformed state fails closed. The one personal owner has one authorization scope.

@@ -116,7 +116,7 @@ export function DeviceAccessGate({ children }: { children: ReactNode }) {
                 <label>
                   Pairing code
                   <TextField
-                    value={code} autoComplete="one-time-code" autoCapitalize="characters" spellCheck={false} onChange={(event) => setCode(event.target.value)} placeholder="ABCD-EFGH-JKLM-NPQR" required autoFocus slotProps={{ htmlInput: { "maxLength": 32 } }}
+                    value={code} autoComplete="one-time-code" autoCapitalize="characters" spellCheck={false} onChange={(event) => setCode(event.target.value)} placeholder="ABCD-EFGH" required autoFocus slotProps={{ htmlInput: { "maxLength": 32 } }}
                   />
                 </label>
                 {pairingError && <Alert severity="error">{pairingError}</Alert>}

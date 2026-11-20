@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,9 +16,9 @@ describe('personal device authentication store', () => {
     store = new DeviceAuthStore(dataDir, { now: () => now });
   });
 
-  it('stores only digests, consumes a high-entropy code once, and writes user-only state', async () => {
+  it('stores only digests, consumes an eight-letter code once, and writes user-only state', async () => {
     const challenge = await store.issuePairingCode();
-    expect(challenge.code).toMatch(/^[A-HJ-NP-Z2-9]{4}(?:-[A-HJ-NP-Z2-9]{4}){3}$/);
+    expect(challenge.code).toMatch(/^[A-HJ-NP-Z]{4}-[A-HJ-NP-Z]{4}$/);
     expect(challenge.expiresAt).toBe('2026-09-04T10:10:00.000Z');
     let persisted = await readFile(store.recordPath, 'utf8');
     expect(persisted).not.toContain(challenge.code);
@@ -35,12 +36,34 @@ describe('personal device authentication store', () => {
     await expect(store.pair(challenge.code, 'Replay')).rejects.toMatchObject({ code: 'invalid-code' });
   });
 
+  it('accepts a previously issued sixteen-character challenge without changing saved state', async () => {
+    await store.issuePairingCode();
+    const record = JSON.parse(await readFile(store.recordPath, 'utf8'));
+    const legacyCode = 'ABCD2345EFGH6789';
+    record.pairingChallenge.codeDigest = createHash('sha256')
+      .update(record.pairingChallenge.salt, 'utf8').update('\0').update(legacyCode, 'utf8').digest('hex');
+    await writeFile(store.recordPath, JSON.stringify(record), 'utf8');
+
+    const paired = await store.pair('abcd-2345-efgh-6789', 'Existing challenge');
+    expect(await store.authenticate(paired.credential)).toMatchObject({ id: paired.device.id });
+  });
+
+  it('replaces the previous challenge when another code is issued', async () => {
+    const first = await store.issuePairingCode();
+    const second = await store.issuePairingCode();
+    await expect(store.pair(first.code, 'Replaced')).rejects.toMatchObject({ code: 'invalid-code' });
+    const paired = await store.pair(second.code, 'Current');
+    expect(await store.authenticate(paired.credential)).toBeDefined();
+  });
+
   it('expires challenges and credentials and bounds online guessing attempts', async () => {
     let challenge = await store.issuePairingCode();
+    const wrongCode = `${challenge.code[0] === 'A' ? 'B' : 'A'}${challenge.code.slice(1)}`;
     for (let attempt = 0; attempt < 4; attempt += 1) {
-      await expect(store.pair('AAAA-AAAA-AAAA-AAAA', 'Guess')).rejects.toMatchObject({ code: 'invalid-code' });
+      await expect(new DeviceAuthStore(dataDir, { now: () => now }).pair(wrongCode, 'Guess'))
+        .rejects.toMatchObject({ code: 'invalid-code' });
     }
-    await expect(store.pair('BBBB-BBBB-BBBB-BBBB', 'Last guess')).rejects.toMatchObject({ code: 'invalid-code' });
+    await expect(store.pair(wrongCode, 'Last guess')).rejects.toMatchObject({ code: 'invalid-code' });
     await expect(store.pair(challenge.code, 'Too late')).rejects.toMatchObject({ code: 'invalid-code' });
 
     challenge = await store.issuePairingCode();

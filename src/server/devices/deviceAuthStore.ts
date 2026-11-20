@@ -1,5 +1,5 @@
 import {
-  createHash, randomBytes, randomUUID, timingSafeEqual,
+  createHash, randomBytes, randomInt, randomUUID, timingSafeEqual,
 } from 'node:crypto';
 import {
   chmod, mkdir, open, readFile, rename, unlink, type FileHandle,
@@ -14,7 +14,7 @@ const MAX_DEVICES = 32;
 const MAX_PAIRING_ATTEMPTS = 5;
 const PAIRING_TTL_MS = 10 * 60 * 1_000;
 const DEVICE_TTL_MS = 365 * 24 * 60 * 60 * 1_000;
-const PAIRING_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const PAIRING_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
 const digestSchema = z.string().regex(/^[a-f0-9]{64}$/);
 const deviceSchema = z.object({
@@ -70,7 +70,8 @@ function equalDigest(expectedHex: string, actual: Buffer): boolean {
 
 function normalizeCode(code: string): string | undefined {
   const normalized = code.toUpperCase().replace(/[\s-]/g, '');
-  return /^[A-HJ-NP-Z2-9]{16}$/.test(normalized) ? normalized : undefined;
+  // Keep outstanding sixteen-character challenges usable across upgrades.
+  return /^(?:[A-HJ-NP-Z]{8}|[A-HJ-NP-Z2-9]{16})$/.test(normalized) ? normalized : undefined;
 }
 
 function displayCode(code: string): string {
@@ -132,7 +133,7 @@ export class DeviceAuthStore {
   async issuePairingCode(): Promise<{ code: string; expiresAt: string }> {
     return this.enqueue(async () => {
       const record = await this.readRecord();
-      const normalized = Array.from(this.random(16), (byte) => PAIRING_ALPHABET[byte % PAIRING_ALPHABET.length])
+      const normalized = Array.from({ length: 8 }, () => PAIRING_ALPHABET[randomInt(PAIRING_ALPHABET.length)])
         .join('');
       const salt = this.random(16).toString('hex');
       const expiresAt = new Date(this.now().getTime() + PAIRING_TTL_MS).toISOString();

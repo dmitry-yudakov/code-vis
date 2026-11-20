@@ -90,7 +90,7 @@ export const editQueuedMessageRequestSchema = z.object({
 
 export const pairDeviceRequestSchema = z.object({
   label: z.string().trim().min(1).max(64),
-  code: z.string().trim().min(16).max(32),
+  code: z.string().trim().min(8).max(32),
 }).strict();
 
 export const revokeDeviceRequestSchema = z.object({ deviceId: z.string().uuid() }).strict();

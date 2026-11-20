@@ -63,7 +63,9 @@
     ".next-e2e/project-header/types/**/*.ts",
     ".next-e2e/project-header/dev/types/**/*.ts",
     ".next-e2e/mcp/types/**/*.ts",
-    ".next-e2e/mcp/dev/types/**/*.ts"
+    ".next-e2e/mcp/dev/types/**/*.ts",
+    ".next-pairing-short-code/types/**/*.ts",
+    ".next-pairing-short-code/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

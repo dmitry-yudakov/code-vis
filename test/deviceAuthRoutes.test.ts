@@ -134,6 +134,35 @@ describe.sequential('paired device route boundary', () => {
     expect(persisted).not.toContain(paired.credential);
   });
 
+  it.each([
+    ['grouped', '-'], ['unhyphenated', ''], ['spaced', ' '],
+  ])('exchanges an eight-letter code with %s input', async (_format, separator) => {
+    const challenge = await new DeviceAuthStore(routeState.dataDir).issuePairingCode();
+    expect(challenge.code).toMatch(/^[A-HJ-NP-Z]{4}-[A-HJ-NP-Z]{4}$/);
+    const code = challenge.code.toLowerCase().replace('-', separator);
+    const response = await POST_PAIR(request('/api/auth/pair', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: 'Short-code device', code }),
+    }));
+    expect(response.status).toBe(201);
+    const status = await GET_STATUS(request('/api/auth/status', {}, credentialFrom(response)));
+    expect(await status.json()).toMatchObject({ authenticated: true, device: { label: 'Short-code device' } });
+  });
+
+  it('invalidates a short challenge after five wrong HTTP exchanges', async () => {
+    const store = new DeviceAuthStore(routeState.dataDir);
+    const challenge = await store.issuePairingCode();
+    const wrongCode = `${challenge.code[0] === 'A' ? 'B' : 'A'}${challenge.code.slice(1)}`;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await POST_PAIR(request('/api/auth/pair', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: 'Guess', code: wrongCode }),
+      }));
+      expect(response.status).toBe(401);
+    }
+    await expect(store.pair(challenge.code, 'Too late')).rejects.toMatchObject({ code: 'invalid-code' });
+  });
+
   it('revokes another device and self-signs out with immediate server-side effect', async () => {
     const first = await pair('Laptop');
     const second = await pair('Headset');

@@ -60,7 +60,7 @@ machine without introducing accounts, teams, or another executor.
 
 ### B. Pairing proves possession and creates a revocable device session
 
-3. `npm run device:pair` creates one high-entropy, single-use pairing code in the configured data
+3. `npm run device:pair` creates one eight-letter, single-use pairing code in the configured data
    directory and prints its expiry. The stored challenge is a digest, expires after ten minutes,
    and is invalidated after a small bounded number of failed attempts.
 4. An unpaired HTTPS device sees a focused pairing screen before `AppShell` mounts. It submits a
@@ -151,3 +151,50 @@ interface PairedDeviceSummary {
 6. Attempt paired mode over HTTP, at another Host/Origin, and through ordinary `npm start`; confirm
    host APIs fail closed with no session or repository data.
 7. Run `npm run lint`, `npm test`, `npm run build`, and `npm run test:e2e`.
+
+## November 20 follow-up — shorter personal-device codes
+
+**Status:** Shipped
+
+Replace the sixteen-character personal-device challenge with eight uniformly random letters,
+excluding I and O, displayed as `ABCD-EFGH`. The 24-letter alphabet provides about 36.7 bits of
+randomness; at most five online guesses are permitted per terminal-issued challenge. Keep the
+ten-minute expiry, one-time exchange, digest-only persistence, HTTPS/origin checks and full-length
+device credentials. Execution-machine pairing keeps its existing format.
+
+### Acceptance criteria
+
+- [x] `device:pair` issues eight letters in two groups of four; lowercase, spaces and omitted
+      hyphens are accepted by the store and HTTP exchange.
+- [x] Previously issued sixteen-character challenges remain usable until expiry. New codes keep
+      replacement, expiry, replay protection and a durable five-failure limit.
+- [x] The pairing field shows `ABCD-EFGH`; failed exchange retains input for retry, and successful
+      pairing, device management and sign-out work on desktop and phone in both themes.
+- [x] Focused store/route checks, TypeScript, an isolated production build, production-browser
+      journeys, screenshot inspection and independent review pass.
+
+### Where the code is
+
+- `src/server/devices/deviceAuthStore.ts:71` normalizes challenges; `:133` issues them.
+- `src/shared/protocol.ts:91` bounds the device exchange request.
+- `src/features/devices/DeviceAccess.tsx:117` owns the pairing field.
+- `test/deviceAuthStore.test.ts:18`, `test/deviceAuthRoutes.test.ts:56` and
+  `e2e/device-pairing.spec.ts:3` cover the affected delivery and recovery path.
+
+### How to verify
+
+Run `npx vitest run test/deviceAuthStore.test.ts test/deviceAuthRoutes.test.ts`, `npm run lint`,
+an isolated `CODEAI_DIST_DIR=... npm run build`, and `CODEAI_DIST_DIR=... npx playwright test
+e2e/device-pairing.spec.ts`. Inspect the four pairing-screen captures. No running-app restart is
+part of this follow-up.
+
+Verification: the new format assertions failed against the original implementation, then all 29
+focused store/route/protocol and unchanged machine-pairing checks passed. TypeScript and the
+isolated production build passed. Four distinct production-browser journeys passed (light/dark,
+1280/390 px), including failed-exchange recovery, device management and sign-out; all four pairing
+captures were inspected. Initial browser-test selectors were corrected to scope the error alert
+and open More before Devices on phones. Independent review found no blockers.
+
+The running application has not been rebuilt or restarted. Its older pairing endpoint still
+requires the long format until Build & restart; the updated CLI must be used with the updated
+server to exchange short codes.
