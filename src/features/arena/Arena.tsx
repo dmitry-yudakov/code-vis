@@ -268,11 +268,13 @@ export function Arena({
                           {group.name}
                         </ButtonBase> : group.name}
                         </h3></div>
-                        {projectCheckoutIds && <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById, true)}</span>}
+                        {projectCheckoutIds && <div className="arena-project-details">
+                          <span className="arena-project-repositories">{repositoryNames(projectCheckoutIds, checkoutById, true)}</span>
+                          {project && <ProjectActions name={project.name} disabled={!online}
+                            onAction={action => onManageProject(machineId, project, action)} />}
+                        </div>}
                       </div>
                       <div className="arena-project-actions">
-                      {project && <ProjectActions name={project.name} disabled={!online}
-                        onAction={action => onManageProject(machineId, project, action)} />}
                       {(group.id === 'none' || project) && <IconButton type="button" disabled={!online}
                         aria-label={`New session in ${group.name}`} title={`New session in ${group.name}`}
                         onClick={() => onNewProjectSession(machine.machine.id, group.id === 'none' ? undefined : group.id)}><ShellIcon name="newChat" /></IconButton>}

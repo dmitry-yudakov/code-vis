@@ -194,7 +194,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-group { padding-top: 28px; }
 .arena-group > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .arena-group > header > div { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
-.arena-group > header > .arena-project-actions { flex: none; flex-wrap: nowrap; gap: 0; }
+.arena-project-details { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.arena-group > header > .arena-project-actions { flex: none; flex-wrap: nowrap; gap: 8px; }
 .arena-project-handle.MuiIconButton-root { cursor: grab; }
 .arena-project-handle.MuiIconButton-root:active { cursor: grabbing; }
 .arena-project-handle .shell-icon { stroke-width: 2.8; }
@@ -233,6 +234,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tiles .arena-group > header { align-items: flex-start; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
 .arena-tiles .arena-group-empty > header { padding-bottom: 0; margin-bottom: 0; border-bottom: 0; }
 .arena-tiles .arena-group > header > div:first-child { flex: 1; }
+.arena-tiles .arena-project-handle.MuiIconButton-root { margin-right: -8px; }
 .arena-tiles .arena-card-grid { flex: 1; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; align-items: stretch; }
 .arena-tiles .arena-card { grid-template-rows: auto 1fr; align-items: stretch; overflow: hidden; border-radius: 12px; }
 .arena-tiles .arena-card-open { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 16px 12px; }
