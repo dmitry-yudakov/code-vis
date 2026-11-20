@@ -292,6 +292,10 @@ Updated 2026-11-18. When a story ships, change the line that names it; each stor
   Preview reads require Linux and are bounded to 512 KiB. All 69 focused unit checks, TypeScript,
   isolated build, 30 production-browser checks, both-theme desktop/phone screenshot inspection
   and independent review pass. The running app has not been restarted.
+  The November 20 follow-up renders Mermaid fences in Files and Changes Markdown previews with
+  shared theme/security policy and source fallback; 23 focused unit checks, 34 distinct browser
+  cases, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and review pass.
+  The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 125](stories/STORY-20261104-repository-panel.md) — Repository has Changes/
   History tabs, a compact inset branch row, and repository management behind a small button.
   Recent Git history loads on demand; 179 focused unit checks, 77 distinct browser cases,

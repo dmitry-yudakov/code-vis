@@ -14,6 +14,7 @@ import { openTab, closeTab, resolveTab, tabFileContext, type FileTabs } from './
 import type { ActiveFileContext } from '@/shared/activeFileContext';
 import type { RepositoryFile } from '@/shared/repositoryFiles';
 import { localFileLink, type LocalFileLink } from './localFileLinks';
+import { MarkdownPreviewCodeBlock } from './MarkdownPreviewCodeBlock';
 
 type OpenFile = (link: LocalFileLink, checkoutId?: string) => void;
 interface FilesContextValue extends FileTabs {
@@ -219,6 +220,7 @@ export function RepositoryFileViewer({ link, checkoutId, repositories, apiBase, 
             </> : file.text || '(empty file)'}</code></pre>
           </> : <article className="assistant-blocks diff-markdown-preview" aria-label="Markdown preview">
             <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={repositoryUrlTransform} components={{
+              pre: MarkdownPreviewCodeBlock,
               a: ({ href, children }) => <RepositoryLink href={href} documentPath={file.path} checkoutId={result.checkoutId}>{children}</RepositoryLink>,
               img: ({ alt }) => <span>[Image: {alt || 'image'}]</span>,
             }}>{file.text}</ReactMarkdown>

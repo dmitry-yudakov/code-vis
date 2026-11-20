@@ -11,6 +11,7 @@ import remarkGfm from 'remark-gfm';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 import type { GitChangedFile } from '@/shared/types';
 import type { RepositoryDiffState } from './useRepositoryDiff';
+import { MarkdownPreviewCodeBlock } from './MarkdownPreviewCodeBlock';
 
 function patchLineClass(line: string): string {
   if (line.startsWith('@@')) return 'hunk';
@@ -68,6 +69,7 @@ export function RepositoryDiffInspector({ file, state, onClose, onRetry }: {
         ) : showPreview ? 'markdown' in preview ? (
           <article className="assistant-blocks diff-markdown-preview" aria-label="Markdown preview">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+              pre: MarkdownPreviewCodeBlock,
               a: ({ href, children }) => /^https?:\/\//i.test(href ?? '')
                 ? <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>
                 : <span title={href}>{children}</span>,
