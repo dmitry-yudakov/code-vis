@@ -384,7 +384,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .immersive-viewport { position: fixed; inset: 0; pointer-events: none; opacity: 0; }
 .header-actions > .immersive-entry { position: relative; padding: 0; border: 0; background: transparent; }
 .header-actions > .immersive-entry:empty { display: none; }
-.immersive-entry > [role="alert"] { position: absolute; top: 100%; right: 0; z-index: 80; width: 260px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
+.immersive-entry > .immersive-notice { position: absolute; top: 100%; right: 0; z-index: 80; width: 260px; display: flex; align-items: flex-start; gap: 4px; padding: 6px 6px 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
+.immersive-notice > [role="alert"] { flex: 1; padding: 6px 0; }
 .header-actions .immersive-semantic-controls { position: fixed; bottom: 12px; left: 60px; z-index: 80; width: 250px; max-height: 40vh; overflow: auto; }
 .immersive-semantic-controls > strong, .immersive-semantic-controls > [role="status"], .immersive-semantic-controls > [data-immersive-session] { grid-column: 1 / -1; }
 .immersive-semantic-controls fieldset { grid-column: 1 / -1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
@@ -585,7 +586,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 /* An error stays until dismissed, so its edge says so too. */
 .toast[data-tone="error"] { border-color: var(--stop-line); }
 /* Tone is a glyph's shape and its disc's tint, never colour alone; news stays achromatic. */
-.toast-glyph svg, .toast-dismiss svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.toast-glyph svg, .toast-dismiss svg, .immersive-notice button svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .toast-body { min-width: 0; padding-top: 2px; }
 .toast-body p { margin: 0; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 .toast-count { margin-left: 6px; padding: 1px 5px; border-radius: 999px; color: var(--ink-2); background: var(--control-wash); font: 600 9px/1.4 var(--mono); vertical-align: 1px; }

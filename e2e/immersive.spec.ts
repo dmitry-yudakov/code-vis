@@ -1472,6 +1472,26 @@ test('samples diagnostics and removes the timer and error listeners after sessio
   expect(await page.evaluate(() => window.__CODEAI_VR_DIAGNOSTICS__!().events)).toEqual(previous);
 });
 
+test('dismisses the VR end notice on a phone and shows the next one', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await installAdapter(page);
+  await workspaceFixture(page);
+  await page.goto('/');
+  const notice = page.locator('.immersive-entry [role="alert"]');
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    await enter(page);
+    await page.evaluate(() => window.xrFixture.systemEnd?.());
+    await released(page);
+    await expect(notice).toContainText('headset or browser ended VR');
+    const box = (await notice.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await page.getByRole('button', { name: 'Dismiss VR notice', exact: true }).click();
+    await expect(notice).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Enter VR', exact: true })).toBeEnabled();
+  }
+});
+
 test('retains VR exit diagnostics across reload with a new document identity', async ({ page }) => {
   await installAdapter(page);
   await workspaceFixture(page);

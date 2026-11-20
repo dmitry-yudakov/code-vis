@@ -1,6 +1,7 @@
 'use client';
 
 import Button from '@mui/material/Button';
+import IconButton from '@mui/material/IconButton';
 import dynamic from 'next/dynamic';
 import { useImmersiveLayout } from './useImmersiveLayout';
 import { PANEL_IDS, PANEL_TITLES, PANEL_COMMAND_LABELS } from './workspaceLayout';
@@ -134,7 +135,12 @@ export function ImmersiveBoundary({ authorized, reportContext, onSelectCanvas, o
         {availability === 'entering' ? 'Entering VR…' : controller ? 'Enter VR' : 'Preparing VR…'}
       </Button>
         : null}
-    {enabled && reason && <span role="alert">{reason}</span>}
+    {enabled && reason && <div className="immersive-notice">
+      <span role="alert">{reason}</span>
+      <IconButton type="button" aria-label="Dismiss VR notice" onClick={() => setReason(undefined)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7 7 17M7 7l10 10" /></svg>
+      </IconButton>
+    </div>}
     {enabled && authorized && <RendererBoundary onError={(message) => handleAvailability('failed', `The immersive renderer could not load: ${message}`)}>
       <ImmersiveRenderer {...props} {...panelState}
         active={active} activeTarget={activeTarget} choices={choices}
