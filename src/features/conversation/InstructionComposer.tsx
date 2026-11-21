@@ -25,6 +25,8 @@ import { carriesFiles, pastedImageFiles, pendingImageDetail, type PendingImage }
 import { chatCommand } from './chatCommands';
 import { useChatCommandInput } from './ChatCommandInput';
 
+const MOBILE_INPUT_QUERY = '(max-width: 620px), (pointer: coarse)';
+
 const ICON_PATHS = {
   plus: 'M12 5v14M5 12h14',
   chevronDown: 'm6 9 6 6 6-6',
@@ -293,7 +295,7 @@ export interface PendingReportChip {
 }
 
 export function InstructionComposer({
-  agentControl, settingsControl, draft, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
+  agentControl, settingsControl, draft, running, cancelReady = true, sendBlocked, autoFocus, autoFocusRequest, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
   modelChoices, modelSelection, sendContext, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel, onArchiveAllowedChange,
   onNewChat, onArchive, newChatDisabledReason, archiveDisabledReason,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
@@ -316,6 +318,9 @@ export function InstructionComposer({
   cancelReady?: boolean;
   sendBlocked?: string;
   autoFocus?: boolean;
+  /** Session-opening focus is skipped on phones and touch devices. */
+  autoFocusRequest?: string;
+  /** Deliberate editing, such as choosing a starter, also focuses on mobile. */
   focusRequest?: string;
   onFocusRequestHandled?(): void;
   attached: CanvasTarget[];
@@ -451,10 +456,16 @@ export function InstructionComposer({
     onAddImages(files);
   };
   useEffect(() => {
+    // Opening a session should not bring up the on-screen keyboard on phones or touch devices.
+    if (window.matchMedia(MOBILE_INPUT_QUERY).matches) return;
     // Session navigation owns keyboard focus on its tab; explicit focus requests still win.
     if (autoFocus && document.activeElement?.getAttribute('role') !== 'tab') ref.current?.focus();
   }, [autoFocus]);
-  useEffect(() => { if (focusRequest && ref.current) { ref.current.focus(); onFocusRequestHandled?.(); } }, [focusRequest, onFocusRequestHandled]);
+  useEffect(() => {
+    if (!(focusRequest || autoFocusRequest) || !ref.current) return;
+    if (focusRequest || !window.matchMedia(MOBILE_INPUT_QUERY).matches) ref.current.focus();
+    onFocusRequestHandled?.();
+  }, [focusRequest, autoFocusRequest, onFocusRequestHandled]);
   useEffect(() => {
     const field = ref.current;
     if (!field) return;

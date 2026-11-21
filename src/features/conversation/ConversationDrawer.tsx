@@ -389,7 +389,8 @@ export function ConversationDrawer({
           cancelReady={cancelReady}
           sendBlocked={sendBlocked}
           autoFocus
-          focusRequest={starterFocus || focusRequest}
+          autoFocusRequest={focusRequest}
+          focusRequest={starterFocus}
           onFocusRequestHandled={() => { setStarterFocus(undefined); onFocusRequestHandled?.(); }}
           attached={attached}
           reports={reports}

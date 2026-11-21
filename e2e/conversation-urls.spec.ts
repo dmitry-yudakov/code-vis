@@ -33,6 +33,62 @@ async function expectSession(page: Page, session: PublicSession) {
   await expect(composer(page)).toBeVisible();
 }
 
+for (const device of [
+  { name: 'desktop', width: 1440, hasTouch: false, autoFocus: true },
+  { name: 'phone-width', width: 390, hasTouch: false, autoFocus: false },
+  { name: 'landscape touch', width: 844, hasTouch: true, autoFocus: false },
+]) {
+  test.describe(`${device.name} composer focus`, () => {
+    test.use({ viewport: { width: device.width, height: 900 }, hasTouch: device.hasTouch });
+
+    test('session entry respects automatic focus and deliberate editing', async ({ page, request }) => {
+      const { session, project } = await fixture(request);
+      const field = composer(page);
+      const expectEntryFocus = async (opened = session) => {
+        await expectSession(page, opened);
+        if (device.autoFocus) await expect(field).toBeFocused();
+        else await expect(field).not.toBeFocused();
+      };
+
+      await page.goto(href(session));
+      await expectEntryFocus();
+      await field.click();
+      await expect(field).toBeFocused();
+      await field.fill('Keep this mobile draft');
+
+      await page.reload();
+      await expectEntryFocus();
+      await expect(field).toHaveValue('Keep this mobile draft');
+
+      await page.locator('.app-header').getByRole('link', { name: 'CodeAI Arena', exact: true }).click();
+      await page.locator(`main a[href="${href(session)}"]`).click();
+      await expectEntryFocus();
+      await expect(field).toHaveValue('Keep this mobile draft');
+      await field.click();
+      await expect(field).toBeFocused();
+      await field.fill('');
+      await page.getByRole('button', { name: 'Plan a change', exact: true }).click();
+      await expect(field).toBeFocused();
+      await expect(field).toHaveValue('Help me plan a change to this project. Start by asking what I want to achieve.');
+
+      await page.locator('.app-header').getByRole('link', { name: 'CodeAI Arena', exact: true }).click();
+      await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+      await dialog.getByRole('button', { name: 'Settings', exact: true }).click();
+      await dialog.getByLabel('Project', { exact: true }).selectOption(project.id);
+      await dialog.getByRole('group', { name: 'Provider', exact: true }).getByRole('button', { name: 'Claude', exact: true }).click();
+      await dialog.getByLabel('Mode', { exact: true }).selectOption('ask');
+      await dialog.getByRole('textbox').fill('Open this background conversation');
+      const created = page.waitForResponse(response => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
+      await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+      const launched = (await (await created).json()).session as PublicSession;
+      await expect(dialog).not.toBeVisible();
+      await page.getByRole('region', { name: 'Notifications' }).getByRole('button', { name: 'Open session', exact: true }).click();
+      await expectEntryFocus(launched);
+    });
+  });
+}
+
 for (const width of [1440, 360]) {
   test(`CodeAI navbar link opens Arena at ${width}px`, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
