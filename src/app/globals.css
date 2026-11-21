@@ -11,7 +11,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 ::selection { background: var(--plot-wash); }
 
 .device-access-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px; overflow: auto; background-color: var(--sheet); background-image: radial-gradient(circle at 1px 1px, var(--canvas-grid-soft) 1px, transparent 0); background-size: 24px 24px; }
-.device-access-card > .brand-mark { width: 32px; height: 32px; border-radius: 8px; font-size: 16px; }
+.device-access-card > .brand-mark { width: 32px; height: 32px; }
 .device-access-card h1 { margin: -5px 0 0; font: 750 clamp(28px, 8vw, 42px)/1 var(--sans); letter-spacing: -.04em; }
 .device-access-card > p, .device-access-warning p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .device-access-card code, .device-menu code { padding: 2px 4px; border-radius: 4px; color: var(--ink-2); background: var(--neutral-wash-strong); font: 10px/1.4 var(--mono); }
@@ -24,8 +24,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .brand { flex: none; display: flex; align-items: center; gap: 7px; color: inherit; text-decoration: none; font-family: var(--display); font-stretch: 112%; }
 .brand strong { font-size: 13px; line-height: 1; letter-spacing: -.01em; }
 .brand:hover strong { text-decoration: underline; }
-.brand-mark { width: 26px; height: 26px; flex: none; display: inline-grid; place-items: center; border-radius: 8px; color: var(--on-emphasis); background: var(--plot); font: 700 14px/1 var(--sans); }
-.brand .brand-mark { font-family: inherit; font-stretch: 118%; }
+.brand-mark { width: 26px; height: 26px; flex: none; display: inline-block; background: url('/icons/codeai-192.png') center / contain no-repeat; }
 .header-breadcrumbs { min-width: 0; flex: 1; display: flex; align-items: center; gap: 7px; }
 /* The picker shrink-wraps its label: a fixed 260px box with space-between strands the chevron
    a couple of hundred pixels from a short project name and reads as a separate control. */
@@ -595,14 +594,14 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .project-workspace .welcome-screen { grid-column: canvas / -1; }
 .project-workspace .welcome-screen[hidden] { display: none; }
 .welcome-intro { width: min(400px, 100%); }
-.welcome-intro > .brand-mark { width: 44px; height: 44px; margin-bottom: 24px; font-size: 24px; border-radius: 12px; }
+.welcome-intro > .brand-mark { width: 44px; height: 44px; margin-bottom: 24px; }
 .welcome-intro .eyebrow { display: block; }
 .welcome-intro p { margin: 0; color: var(--muted); line-height: 1.7; }
 .welcome-screen > * { flex-shrink: 0; }
 .welcome-screen > p { max-width: 590px; margin: 0; color: var(--muted); line-height: 1.65; }
 .fatal-empty p { max-width: 600px; color: var(--muted); }
 .app-loading { gap: 15px; color: var(--muted); }
-.app-loading .brand-mark { width: 48px; height: 48px; font-size: 24px; }
+.app-loading .brand-mark { width: 48px; height: 48px; }
 
 .repository-region { grid-area: rail; position: relative; min-width: 0; min-height: 0; margin: var(--pane-gutter, 0px) var(--pane-gutter, 0px) var(--pane-gutter, 0px) 0; z-index: 15; }
 .repository-sidebar { position: absolute; inset: 0; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; border-right: 1px solid var(--line); background: var(--shell); box-shadow: var(--sidebar-shadow); }

@@ -65,6 +65,7 @@ for (const [theme, width] of [['light', 1280], ['dark', 1280], ['light', 390], [
 
     await page.goto('/arena');
     await expect(page.getByRole('heading', { name: 'Pair this device' })).toBeVisible();
+    await expect(page.locator('.device-access-card .brand-mark')).toHaveCSS('background-image', /\/icons\/codeai-192\.png/);
     await expect(page.getByRole('textbox', { name: 'Pairing code' })).toHaveAttribute('placeholder', 'ABCD-EFGH');
     await page.screenshot({ path: testInfo.outputPath('pairing.png'), fullPage: true });
     expect(privateRequestsBeforePairing).toBe(0);
@@ -79,6 +80,8 @@ for (const [theme, width] of [['light', 1280], ['dark', 1280], ['light', 390], [
     await page.getByRole('button', { name: 'Pair device' }).click();
 
     await expect(page.getByRole('heading', { name: 'Arena', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'CodeAI Arena' }).locator('.brand-mark'))
+      .toHaveCSS('background-image', /\/icons\/codeai-192\.png/);
     if (width === 390) await page.getByRole('button', { name: 'More', exact: true }).click();
     await page.locator('.device-menu > button').click();
     await expect(page.getByText('Kitchen tablet · This device')).toBeVisible();

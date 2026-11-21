@@ -97,12 +97,19 @@ test.describe('paired HTTPS through multiple IPs', () => {
     if (directory) await rm(directory, { recursive: true, force: true });
   });
 
-  test('serves the standalone web app manifest before pairing on each origin', async () => {
+  test('serves the CodeAI icons and standalone web app manifest before pairing on each origin', async () => {
     for (const origin of origins) {
       const page = await send(origin, '/');
       expect(page.status).toBe(200);
       expect(page.body.match(/<link\b[^>]*\brel="manifest"[^>]*>/)?.[0])
         .toContain('href="/manifest.webmanifest"');
+
+      const favicon = page.body.match(/<link\b[^>]*\brel="icon"[^>]*>/)?.[0]
+        .match(/\bhref="([^"]+)"/)?.[1];
+      expect(favicon).toBeDefined();
+      const tabIcon = await send(origin, favicon!);
+      expect(tabIcon.status).toBe(200);
+      expect(tabIcon.headers['content-type']).toBe('image/png');
 
       const response = await send(origin, '/manifest.webmanifest');
       expect(response.status).toBe(200);

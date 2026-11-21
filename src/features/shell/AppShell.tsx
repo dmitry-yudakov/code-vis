@@ -3011,7 +3011,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="app-header">
         <Link ref={arenaLink} className="brand" href={ARENA_SECTION_PATHS.sessions} scroll={false} {...arenaShortcutHint}
           aria-label="CodeAI Arena" aria-current={arenaSection === 'sessions' ? 'page' : undefined}>
-          <span className="brand-mark" aria-hidden="true">C</span><strong>CodeAI</strong>
+          <span className="brand-mark" aria-hidden="true" /><strong>CodeAI</strong>
         </Link>
         <nav className="header-breadcrumbs" aria-label="Current project and session">
           {!loading && <>
@@ -3439,7 +3439,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         onClose={() => setProjectLogoTarget(undefined)} />}
 
       {openingWorkspace ? (
-        <div className="app-loading" role="status"><div className="brand-mark">C</div>
+        <div className="app-loading" role="status"><div className="brand-mark" aria-hidden="true" />
           {openingSummary && <strong>{openingSummary.title}</strong>}
           <p>{openingSummary ? 'Loading recent messages…' : 'Opening your code canvas…'}</p>
         </div>
@@ -3481,7 +3481,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       ) : !session ? (
         <div className="welcome-screen" hidden={projectWorkspace && (canvasHidden || Boolean(maximized))}>
           <div className="welcome-intro">
-            <div className="brand-mark" aria-hidden="true">C</div>
+            <div className="brand-mark" aria-hidden="true" />
             <span className="eyebrow">Your local workspace</span>
             <h1>{sessionChoices.length ? 'No open sessions' : 'Good ideas start here.'}</h1>
             <p>{sessionChoices.length

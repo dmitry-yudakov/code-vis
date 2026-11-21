@@ -81,7 +81,7 @@ export function DeviceAccessGate({ children }: { children: ReactNode }) {
     return (
       <main className="device-access-screen">
         <Paper className="device-access-card" sx={{ p: { xs: 3, sm: 5 } }} role="status">
-          <div className="brand-mark">C</div>
+          <div className="brand-mark" aria-hidden="true" />
           <span className="eyebrow">Personal workspace</span>
           <h1>{statusError ? 'CodeAI is unavailable' : 'Opening CodeAI…'}</h1>
           {statusError && <p className="device-access-error">{statusError}</p>}
@@ -95,7 +95,7 @@ export function DeviceAccessGate({ children }: { children: ReactNode }) {
     return (
       <main className="device-access-screen">
         <Paper component="section" className="device-access-card" sx={{ p: { xs: 3, sm: 5 } }} aria-labelledby="pair-device-title">
-          <div className="brand-mark">C</div>
+          <div className="brand-mark" aria-hidden="true" />
           <span className="eyebrow">{status.hostLabel} · Personal device</span>
           <h1 id="pair-device-title">Pair this device</h1>
           {!status.transportSecure ? (
