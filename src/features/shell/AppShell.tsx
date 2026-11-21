@@ -1052,22 +1052,24 @@ export function AppShell({ children }: { children: ReactNode }) {
     mutateSession(saved.id, current => mergeSessionPage(data, current, undefined, before));
   }, [apiPath, machineId, mutateSession, sessionId]);
 
-  const loadMessageDetails = useCallback(async (messageId: string) => {
+  const loadMessageDetails = useCallback(async (messageId: string, signal: AbortSignal) => {
     const destination = navigationKeyRef.current;
-    const response = await fetch(apiPath(`/api/sessions/${sessionId}?view=message&messageId=${encodeURIComponent(messageId)}`), { cache: 'no-store' });
+    const response = await fetch(apiPath(`/api/sessions/${sessionId}?view=message&messageId=${encodeURIComponent(messageId)}`), { cache: 'no-store', signal, priority: 'low' });
     const data = await response.json() as { revision: number; message?: import('@/shared/types').ChatMessage; error?: string };
     if (!response.ok || !data.message) throw new Error(data.error || 'Could not load message details.');
-    if (navigationKeyRef.current !== destination || machineIdRef.current !== machineId) return;
+    if (signal.aborted || navigationKeyRef.current !== destination || machineIdRef.current !== machineId) return;
     const message = data.message;
     const current = sessionsRef.current.find(item => item.id === sessionId);
     if (!current || data.revision < current.revision) throw new Error('This conversation changed. Load details again.');
     mutateSession(current.id, saved => {
-      if (saved.revision > data.revision) return saved;
+      if (saved.revision > data.revision || !saved.history?.deferredMessageIds.includes(messageId)) return saved;
       return hydrateSession({ ...saved, messages: saved.messages.map(item => item.id === message.id ? message : item),
-        history: saved.history ? { ...saved.history, deferredMessageIds: saved.history.deferredMessageIds.filter(id => id !== messageId) } : undefined,
+        history: { ...saved.history,
+          deferredMessageIds: saved.history.deferredMessageIds.filter(id => id !== messageId),
+          inlineDeferredMessageIds: saved.history.inlineDeferredMessageIds?.filter(id => id !== messageId),
+        },
       }, saved);
     });
-    return message;
   }, [apiPath, machineId, mutateSession, sessionId]);
 
   const loadCanvases = useCallback(async (targetSessionId: string) => {

@@ -32,9 +32,11 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, detailsDeferred, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onEditQueuedMessage, navigation }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, detailsDeferred, detailsLoading, onLoadDetails, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onEditQueuedMessage, navigation }: {
   message: ChatMessageType;
   detailsDeferred?: boolean;
+  detailsLoading?: boolean;
+  onLoadDetails?(): void;
   theme: ThemeName;
   participants: Participant[];
   activeDiagramId?: string;
@@ -68,7 +70,6 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, det
             {navigation}
           </Box>
         </div>
-        {detailsDeferred && <small>Message preview · details available below</small>}
         {edit ? <Box component="form" sx={{ display: 'grid', gap: 1, my: 1 }} onSubmit={async event => {
           event.preventDefault();
           if (saving || !edit.text.trim() || !onEditQueuedMessage) return;
@@ -90,8 +91,13 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, det
         {message.diagramAttachments.length > 0 && <div className="message-attachments">{attachmentSummary(message.diagramAttachments)}</div>}
         {message.reportAttachments?.length ? <div className="message-attachments report">{reportAttachmentSummary(message.reportAttachments)}</div> : null}
         {message.imageAttachments?.length ? <div className="message-attachments image">{imageAttachmentSummary(message.imageAttachments)}</div> : null}
-        {!detailsDeferred && message.fileAttachments?.map((file, index) => <Disclosure className="message-attachments" key={index} title={<>{file.name} · {file.bytes} bytes</>}>
-          <pre>{file.text}</pre></Disclosure>)}
+        {message.fileAttachments?.map((file, index) => <Disclosure className="message-attachments message-file" key={index}
+          title={<>{file.name} · {file.bytes} bytes</>}
+          onChange={expanded => { if (expanded && detailsDeferred && file.bytes > 0 && !file.text) onLoadDetails?.(); }}>
+          {detailsDeferred && file.bytes > 0 && !file.text
+            ? detailsLoading && <p role="status">Loading file contents…</p>
+            : <pre>{file.text}</pre>}
+        </Disclosure>)}
         {(liveState || message.status !== 'sent') && (
           <div className="message-state">
             <span>{liveState === 'queued' ? 'Queued' : liveState === 'needs-you' ? 'Needs approval' : liveState ? 'Working' : message.status === 'sending' ? 'Checking delivery' : message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
@@ -109,7 +115,6 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, det
       <div className="message-meta">
         <span>{author?.displayName || 'Agent'}</span>
       </div>
-      {detailsDeferred && <small>Message preview · details available below</small>}
       <div className="assistant-blocks">
         {message.blocks.map((block, index) => {
           if (block.kind === 'diagram') return (
@@ -149,11 +154,11 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, det
       <Box component="footer" className="message-actions" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.5, mt: 0.5, color: 'text.secondary', fontSize: 11,
         '& .shell-icon': { width: 16, height: 16 } }}>
         <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time>
-        <Tooltip title="Copy reply">
-          <IconButton type="button" size="small" color="inherit" aria-label="Copy reply" onClick={async () => {
+        <Tooltip title={detailsDeferred ? 'Copy is available after the full reply loads' : 'Copy reply'}>
+          <span><IconButton type="button" size="small" color="inherit" aria-label="Copy reply" disabled={detailsDeferred} onClick={async () => {
             try { await navigator.clipboard.writeText(message.rawMarkdown); setCopyState('copied'); }
             catch { setCopyState('failed'); }
-          }}><ShellIcon name="copy" /></IconButton>
+          }}><ShellIcon name="copy" /></IconButton></span>
         </Tooltip>
         {copyState && <span role="status">{copyState === 'copied' ? 'Copied' : 'Could not copy. Try again.'}</span>}
         {navigation}

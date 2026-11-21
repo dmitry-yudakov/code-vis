@@ -6,7 +6,7 @@ import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
 import Tooltip from '@mui/material/Tooltip';
 
-import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { DraftSource } from './draftLifecycle';
 import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
@@ -74,7 +74,7 @@ export function ConversationDrawer({
   onRefreshPermissions?(): void;
   session?: SessionSnapshot;
   onLoadEarlier?(): Promise<void>;
-  onLoadMessage?(messageId: string): Promise<import('@/shared/types').ChatMessage | undefined>;
+  onLoadMessage?(messageId: string, signal: AbortSignal): Promise<void>;
   theme: ThemeName;
   focusRequest?: string;
   onFocusRequestHandled?(): void;
@@ -142,6 +142,7 @@ export function ConversationDrawer({
   const prepend = useRef<{ key: string; height: number; top: number } | undefined>(undefined);
   const [historyLoad, setHistoryLoad] = useState<{ key: string; busy?: boolean; error?: string }>();
   const [messageLoads, setMessageLoads] = useState<Record<string, { busy?: boolean; error?: string }>>({});
+  const messageRequests = useRef(new Map<string, AbortController>());
   const positions = useRef(new Map<string, { top: number; follow: boolean }>());
   const following = useRef(true);
   const navigationScrollTop = useRef<number | undefined>(undefined);
@@ -173,15 +174,51 @@ export function ConversationDrawer({
       setHistoryLoad({ key, error: error instanceof Error ? error.message : 'Could not load earlier messages.' });
     }
   };
-  const loadMessage = async (id: string) => {
+  const loadMessage = useCallback(async (id: string) => {
     const loadKey = `${key}:${id}`;
-    if (!onLoadMessage || messageLoads[loadKey]?.busy) return;
+    if (!onLoadMessage || messageRequests.current.has(loadKey)) return;
+    const controller = new AbortController();
+    messageRequests.current.set(loadKey, controller);
     setMessageLoads(current => ({ ...current, [loadKey]: { busy: true } }));
-    try { await onLoadMessage(id); setMessageLoads(current => ({ ...current, [loadKey]: {} })); }
-    catch (error) { setMessageLoads(current => ({ ...current, [loadKey]: {
-      error: error instanceof Error ? error.message : 'Could not load message details.',
-    } })); }
-  };
+    let failure: string | undefined;
+    try { await onLoadMessage(id, controller.signal); }
+    catch (error) {
+      if (!controller.signal.aborted) failure = error instanceof Error ? error.message : 'Could not load the saved message.';
+    } finally {
+      messageRequests.current.delete(loadKey);
+      setMessageLoads(current => {
+        const next = { ...current };
+        if (failure) next[loadKey] = { error: failure };
+        else delete next[loadKey];
+        return next;
+      });
+    }
+  }, [key, onLoadMessage]);
+  useEffect(() => {
+    const requests = messageRequests.current;
+    return () => {
+      for (const controller of requests.values()) controller.abort();
+    };
+  }, [key]);
+
+  const deferredIds = session?.history?.deferredMessageIds;
+  const inlineDeferredIds = session?.history?.inlineDeferredMessageIds ?? deferredIds;
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!open || !visible || !root || !onLoadMessage || !inlineDeferredIds?.length
+      || inlineDeferredIds.some(id => messageLoads[`${key}:${id}`]?.busy)) return;
+    const candidates = Array.from(root.querySelectorAll<HTMLElement>('[data-deferred-message-id]')).reverse()
+      .filter(element => !messageLoads[`${key}:${element.dataset.deferredMessageId}`]?.error);
+    const observer = new IntersectionObserver(entries => {
+      const intersecting = new Set(entries.filter(entry => entry.isIntersecting).map(entry => entry.target));
+      const id = candidates.find(element => intersecting.has(element))?.dataset.deferredMessageId;
+      if (!id) return;
+      observer.disconnect();
+      void loadMessage(id);
+    }, { root });
+    for (const element of candidates) observer.observe(element);
+    return () => observer.disconnect();
+  }, [inlineDeferredIds, key, loadMessage, messageLoads, onLoadMessage, open, session?.messages, turn?.sequence, visible]);
   const activitySignature = `${session?.messages.map(message => `${message.id}:${message.status}:${message.role === 'user' ? message.turn?.sequence || 0 : ''}`).join('|')}|${turn?.sequence || 0}|${preview.length}|${toolActivity.length}`;
   const jump = () => {
     navigationScrollTop.current = undefined;
@@ -209,7 +246,7 @@ export function ConversationDrawer({
     observedActivity.current.set(key, activitySignature);
     if (following.current) { const scroll = scrollRef.current; if (scroll) scroll.scrollTop = scroll.scrollHeight; }
     else if (previous !== undefined && previous !== activitySignature) setHasNewActivity(true);
-  }, [visible, key, activitySignature]);
+  }, [visible, key, activitySignature, deferredIds?.length]);
   if (!open) return null;
   const lastMessage = session?.messages[session.messages.length - 1];
   const hasAssistantActivity = turn?.entries.some(entry => entry.kind === 'assistant');
@@ -239,23 +276,28 @@ export function ConversationDrawer({
   for (const [kind, ids] of [['user message', stops.users], ['response', stops.responses]] as const) {
     ids.forEach((id, index) => navigation.set(id, <MessageNavigation kind={kind} previous={ids[index - 1]} next={ids[index + 1]} onNavigate={navigate} />));
   }
-  const renderMessage = (message: NonNullable<typeof session>['messages'][number]) => <><ChatMessage
-    message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
-    navigation={navigation.get(`message:${message.id}`)}
-    running={running} liveState={message.id === liveMessageId ? liveState || 'running' : undefined}
-    onEditQueuedMessage={message.id === liveMessageId && message.role === 'user' && message.turn?.lifecycle === 'queued' && !session?.history?.deferredMessageIds.includes(message.id) ? onEditQueuedMessage : undefined}
-    executePlanBlocked={nativeClaudeIsolationIssue({ provider: agents.find(agent => agent.id === message.authorId)?.provider || 'claude', execution: session?.execution, level: securityLevel, mode: 'agent', choice: session?.instructions })}
-    onSelectDiagram={onSelectDiagram}
-    detailsDeferred={session?.history?.deferredMessageIds.includes(message.id)}
-    onRetry={retryBlocked || session?.history?.deferredMessageIds.includes(message.id) ? undefined : onRetry}
-    onExecutePlan={message.id === lastMessage?.id && !session?.history?.deferredMessageIds.includes(message.id) ? onExecutePlan : undefined} />
-    {session?.history?.deferredMessageIds.includes(message.id) && onLoadMessage && <div style={{ padding: '0 12px 8px' }}>
-      <Button disabled={messageLoads[`${key}:${message.id}`]?.busy} onClick={() => void loadMessage(message.id)}>
-        {messageLoads[`${key}:${message.id}`]?.busy ? 'Loading message details…' : messageLoads[`${key}:${message.id}`]?.error ? 'Retry message details' : 'Load message details'}
-      </Button>
-      {messageLoads[`${key}:${message.id}`]?.error && <p role="alert">{messageLoads[`${key}:${message.id}`].error}</p>}
-    </div>}
-    </>;
+  const renderMessage = (message: NonNullable<typeof session>['messages'][number]) => {
+    const deferred = deferredIds?.includes(message.id);
+    const load = messageLoads[`${key}:${message.id}`];
+    return <div data-deferred-message-id={message.role === 'assistant' && inlineDeferredIds?.includes(message.id) ? message.id : undefined}>
+      <ChatMessage
+        message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
+        navigation={navigation.get(`message:${message.id}`)}
+        running={running} liveState={message.id === liveMessageId ? liveState || 'running' : undefined}
+        onEditQueuedMessage={message.id === liveMessageId && message.role === 'user' && message.turn?.lifecycle === 'queued' && !deferred ? onEditQueuedMessage : undefined}
+        executePlanBlocked={nativeClaudeIsolationIssue({ provider: agents.find(agent => agent.id === message.authorId)?.provider || 'claude', execution: session?.execution, level: securityLevel, mode: 'agent', choice: session?.instructions })}
+        onSelectDiagram={onSelectDiagram}
+        detailsDeferred={deferred}
+        detailsLoading={load?.busy}
+        onLoadDetails={deferred && onLoadMessage ? () => void loadMessage(message.id) : undefined}
+        onRetry={retryBlocked || deferred ? undefined : onRetry}
+        onExecutePlan={message.id === lastMessage?.id && !deferred ? onExecutePlan : undefined}
+      />
+      {deferred && load?.error && <div role="alert" style={{ padding: '0 12px 8px' }}>
+        {load.error} <Button onClick={() => void loadMessage(message.id)}>Retry</Button>
+      </div>}
+    </div>;
+  };
   return (
     <Paper component="aside" square variant="elevation" elevation={0} className="conversation-drawer" aria-label="Conversation">
       <header>
@@ -291,7 +333,7 @@ export function ConversationDrawer({
         positions.current.set(key, { top: scroll.scrollTop, follow: following.current });
         if (following.current) setHasNewActivity(false);
       }} onClickCapture={event => {
-        if ((event.target as HTMLElement).closest('.activity-tool button')) {
+        if ((event.target as HTMLElement).closest('.activity-tool button, .message-file button')) {
           following.current = false;
           positions.current.set(key, { top: scrollRef.current?.scrollTop || 0, follow: false });
         }
@@ -305,12 +347,14 @@ export function ConversationDrawer({
         {session?.messages.map(message => {
           if (message.role === 'assistant' && canonicalIds.has(message.id)) return null;
           const record = recordFor(message);
-          return <div key={message.id} data-message-id={message.id}>
+          return <div key={message.id} data-message-id={message.id}
+            data-deferred-message-id={message.role === 'user' && inlineDeferredIds?.includes(message.id) ? message.id : undefined}>
             {recovery?.checkpoint?.messageId === message.id && <TurnCheckpoint controls={recovery} />}
             {renderMessage(message)}
 
             {record && <TurnActivity turn={record} agentName={agents.find(agent => agent.id === record.participantId)?.displayName || 'Agent'}
-              onLoadDetails={session.history?.deferredMessageIds.includes(message.id) ? () => void loadMessage(message.id) : undefined}
+              onLoadDetails={deferredIds?.includes(message.id) && onLoadMessage ? () => void loadMessage(message.id) : undefined}
+              detailsLoading={messageLoads[`${key}:${message.id}`]?.busy}
               renderNavigation={id => navigation.get(id)}
               permissions={record.runId === turn?.runId ? permissions : []} onReview={id => setReviewRequest({ id, revision: Date.now(), scope: `${key}:${turn?.runId || ""}` })}
               renderFinal={id => { const final = session.messages.find(item => item.id === id); return final ? renderMessage(final) : null; }} />}

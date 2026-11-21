@@ -47,7 +47,11 @@ Updated 2026-11-21. When a story ships, change the line that names it; each stor
   isolated build, both-theme desktop/phone screenshot inspection and independent review pass;
   four unchanged-head browser failures and one existing full-suite font assertion are recorded in
   the story. A throttled phone-width journey transfers 60 KB of recent JSON instead of 326 KB for
-  the complete fixture, using one session read. The running application has not been rebuilt or restarted.
+  the complete fixture, using one session read. The November 21 follow-up removes the details
+  button. Clipped visible messages fill in automatically, and their own controls load attachments
+  and saved tool output. All 103 focused unit checks, 24 production-browser cases, TypeScript,
+  isolated build, both-theme desktop/phone screenshot inspection and independent review pass.
+  The running application has not been rebuilt or restarted.
 - **In flight:** [Story 151](stories/STORY-20261120-mcp-external-observer.md) — scoped MCP project/session
   reads, session creation/archiving, participant additions and addressed sends through a stdio adapter,
   with an external monitoring example. Focused tests, SDK runtime journeys, TypeScript, isolated build

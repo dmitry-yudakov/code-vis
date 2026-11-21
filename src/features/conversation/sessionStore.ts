@@ -126,17 +126,20 @@ export function mergeSessionPage(
       ...prior.history, before: page.history.before,
       deferredMessageIds: [...new Set([...prior.history.deferredMessageIds,
         ...page.history.deferredMessageIds.filter(id => !known.has(id))])],
+      inlineDeferredMessageIds: [...(prior.history.inlineDeferredMessageIds ?? prior.history.deferredMessageIds),
+        ...(page.history.inlineDeferredMessageIds ?? page.history.deferredMessageIds).filter(id => !known.has(id))],
     } }, prior, device);
   }
   if (prior && page.session.revision < prior.revision) return prior;
   const deferred = new Set(page.history.deferredMessageIds);
   const priorDeferred = new Set(prior?.history?.deferredMessageIds);
+  const priorInline = new Set(prior?.history?.inlineDeferredMessageIds ?? priorDeferred);
   const incoming = new Set(page.session.messages.map(message => message.id));
   const messages = page.session.messages.map(message => {
     const previous = prior?.messages.find(item => item.id === message.id);
     if (!previous || !deferred.has(message.id) || priorDeferred.has(message.id)) return message;
     const unchanged = message.role === 'assistant' && previous.role === 'assistant'
-      || message.role === 'user' && previous.role === 'user' && message.text === previous.text
+      || message.role === 'user' && previous.role === 'user' && (message.text === previous.text || prior?.revision === page.session.revision)
         && message.turn?.sequence === previous.turn?.sequence;
     if (!unchanged) return message;
     deferred.delete(message.id);
@@ -153,6 +156,8 @@ export function mergeSessionPage(
   const history = { ...page.history,
     before: prior && !prior.history && overlaps ? undefined : older.length ? prior?.history?.before : page.history.before,
     deferredMessageIds: [...new Set([...older.filter(message => priorDeferred.has(message.id)).map(message => message.id), ...deferred])],
+    inlineDeferredMessageIds: [...older.filter(message => priorInline.has(message.id)).map(message => message.id),
+      ...(page.history.inlineDeferredMessageIds ?? page.history.deferredMessageIds).filter(id => deferred.has(id))],
     canvasesLoaded: sameCanvases && prior?.revision === page.session.revision ? prior?.history?.canvasesLoaded ?? false : false,
   };
   return hydrateSession({ ...page.session, messages: [...older, ...messages, ...optimistic], history,

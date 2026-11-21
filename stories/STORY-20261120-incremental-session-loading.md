@@ -21,8 +21,10 @@ device conversation journey in [the vision](../docs/vision.md).
 - [AppShell.tsx:880](../src/features/shell/AppShell.tsx#L880) loads independent summary lists;
   [line 1029](../src/features/shell/AppShell.tsx#L1029) owns history/detail/canvas reads and complete
   export, while send captures draft/evidence before waiting for deferred canvas data.
-- [ConversationDrawer.tsx:142](../src/features/conversation/ConversationDrawer.tsx#L142) loads earlier
-  pages/details with inline recovery and stable scroll; nested canonical replies share those controls.
+- [ConversationDrawer.tsx:174](../src/features/conversation/ConversationDrawer.tsx#L174) loads earlier
+  pages and message details with inline recovery. Its viewport observer also sees nested canonical
+  replies. [ChatMessage.tsx:94](../src/features/conversation/ChatMessage.tsx#L94) and
+  [TurnActivity.tsx:56](../src/features/conversation/TurnActivity.tsx#L56) load opened files and tool output.
 - [sessionPaging.test.ts:1](../test/sessionPaging.test.ts#L1),
   [sessionRoutes.test.ts:156](../test/sessionRoutes.test.ts#L156) and
   [incremental-session.spec.ts:1](../e2e/incremental-session.spec.ts#L1) cover transfer bounds, merging,
@@ -31,14 +33,14 @@ device conversation journey in [the vision](../docs/vision.md).
 ## Desired behavior
 
 Use compact summaries for project lists and tabs. Fetch only the selected conversation's recent
-messages, with an explicit page/deferred-content contract. Page backward by stable message ids;
-fetch full saved message details and canvases only when requested. Recent reads also serve
+messages, with an explicit page/deferred-content contract. Page backward by stable message ids.
+Load clipped visible messages after the first render. Load saved file contents, tool output and
+canvases when their views need them. Recent reads also serve
 activation and run recovery. Keep the complete GET API for existing clients, exact delivery
 reconciliation and complete exports. The server continues to own the entire canonical history.
 
-Pages have count and UTF-8 byte budgets, including large individual messages: excerpts advertise
-their deferred details and can always load the complete saved message. These are transfer limits,
-not new storage or provider limits. Metadata remains small and separate from message-page budgets.
+Pages have count and UTF-8 byte budgets, including large individual messages. The complete saved
+message remains available. Metadata remains small and separate from message-page budgets.
 Recent pages contain at most 20 messages and 64 KiB of serialized UTF-8 message data, with a
 24 KiB per-message preview budget. Metadata/known canvas ids are outside this message budget.
 A disjoint recent window after a long absence resets to its own cursor so no intervening history
@@ -69,6 +71,16 @@ contracts. No partial read can establish that an uncertain send is absent.
 
 New persistence, offline transcript storage, provider changes, deployment or restarting the running
 application. Closing this work session after committing is a separately requested lifecycle action.
+
+## Follow-up — load details where they are used
+
+- [x] Keep the first conversation page bounded and usable with detail reads delayed. Show recent
+      text before reading clipped content for messages in view, newest first with a single
+      automatic read in progress.
+- [x] Remove the generic details button and preview label. Load saved tool output and file
+      contents when opened. On read failures, retain the visible text and draft and offer Retry.
+- [x] Preserve complete export, older-history paging, and live conversation state. Verify with
+      focused unit checks, the production browser, TypeScript, and independent review.
 
 ## How to verify
 
@@ -115,3 +127,15 @@ history. Run focused Vitest, Playwright, TypeScript, and independent review befo
   pass. Canonical storage remains unchanged; the server still validates its complete session JSON
   before projecting a page. Real providers, attached TLS transport and physical devices were not
   rerun. The running application has not been rebuilt or restarted.
+
+## Follow-up verification — November 21, 2026
+
+- All 103 focused unit checks and 24 production Chrome cases pass. Coverage includes a delayed
+  nested reply, unopened evidence, failed file/tool reads and retry, queued edits, scroll recovery,
+  approvals, archive/Restore, and complete export. Copy becomes available when the full reply loads.
+- At 360px under the same simulated throttle, one 59,558-byte recent read made the conversation
+  usable versus 326,165 bytes for the complete fixture. Desktop and phone screenshots in both
+  themes show the file and tool controls among the ordinary messages.
+- TypeScript, an isolated production build, and independent source review pass. Review led to
+  preserving requests while the conversation pane is temporarily hidden and observing clipped
+  turn activity alongside clipped message text.

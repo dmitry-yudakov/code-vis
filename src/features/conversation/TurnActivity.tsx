@@ -20,11 +20,12 @@ export function StreamingMarkdown({ text }: { text: string }) {
     pre: CodeBlock,
   }}>{text}</ReactMarkdown></div>;
 }
-export function TurnActivity({ turn, agentName, permissions, onReview, renderFinal, renderNavigation, onLoadDetails }: {
+export function TurnActivity({ turn, agentName, permissions, onReview, renderFinal, renderNavigation, onLoadDetails, detailsLoading }: {
   turn: TurnRecord; agentName: string; permissions: PendingPermission[];
   onReview(id: string): void; renderFinal(id: string): ReactNode;
   renderNavigation?(id: string): ReactNode;
   onLoadDetails?(): void;
+  detailsLoading?: boolean;
 }) {
   const renderedFinal = new Set<string>();
   return <div className="turn-activity" aria-label="Turn activity">
@@ -55,17 +56,19 @@ export function TurnActivity({ turn, agentName, permissions, onReview, renderFin
           {live && <Button onClick={() => onReview(entry.requestId)}>Review</Button>}
         </div>;
       }
+      const fields = (['input', 'output', 'diff', 'error'] as const).filter(field => entry[field] !== undefined);
       return <article key={entry.id} data-activity-id={entry.id} className={`activity-tool ${entry.status}`}>
-        <Disclosure title={<span className="tool-summary">
+        <Disclosure onChange={expanded => { if (expanded && !fields.length) onLoadDetails?.(); }} title={<span className="tool-summary">
           {entry.status === 'running'
             ? <CircularProgress size={10} thickness={5} color="inherit" aria-label="Running" sx={{ flexShrink: 0, color: 'warning.main' }} />
             : <span className="tool-result-dot" role="img" aria-label={statusLabels[entry.status]} title={statusLabels[entry.status]} />}
           <span className="tool-summary-text" title={`${entry.tool} · ${entry.summary || 'Details'}`}>{entry.tool} · {entry.summary || 'Details'}</span>
         </span>}>
           <p>{name} · {statusLabels[entry.status]}{entry.actor?.parentToolId ? ` · delegated by ${entry.actor.parentToolId}` : ''}</p>
-          {(['input', 'output', 'diff', 'error'] as const).map(field => entry[field] !== undefined && <div key={field} className={field === 'error' ? 'tool-error' : undefined}><strong>{field === 'input' ? 'Arguments' : field === 'diff' ? 'Diff' : field === 'error' ? 'Error' : 'Output'}</strong><pre>{entry[field]}</pre></div>)}
-          {entry.input === undefined && entry.output === undefined && entry.diff === undefined && entry.error === undefined
-            && (onLoadDetails ? <Button onClick={onLoadDetails}>Load message details</Button> : <p>Details were not supplied by the provider.</p>)}
+          {fields.map(field => <div key={field} className={field === 'error' ? 'tool-error' : undefined}><strong>{field === 'input' ? 'Arguments' : field === 'diff' ? 'Diff' : field === 'error' ? 'Error' : 'Output'}</strong><pre>{entry[field]}</pre></div>)}
+          {!fields.length && (onLoadDetails
+            ? detailsLoading && <p role="status">Loading tool details…</p>
+            : <p>Details were not supplied by the provider.</p>)}
           {entry.exitCode !== undefined && <span>Exit {entry.exitCode} </span>}{entry.durationMs !== undefined && <span>{entry.durationMs} ms</span>}
           {entry.omittedBytes ? <p><small>{entry.omittedBytes} bytes omitted</small></p> : null}
         </Disclosure>

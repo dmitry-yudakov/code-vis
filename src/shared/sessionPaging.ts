@@ -13,9 +13,9 @@ function excerpt(text: string, bytes: number): string {
   return new TextDecoder().decode(encoded.subarray(0, end));
 }
 
-function previewMessage(original: ChatMessage): { message: ChatMessage; deferred: boolean } {
+function previewMessage(original: ChatMessage): { message: ChatMessage; deferred: boolean; inlineDeferred: boolean } {
   const message = structuredClone(original);
-  let deferred = false;
+  let deferred = false, inlineDeferred = false;
   if (message.role === 'user') {
     if (message.turn) {
       delete message.turn.evicted;
@@ -24,35 +24,37 @@ function previewMessage(original: ChatMessage): { message: ChatMessage; deferred
           if (entry[field] !== undefined) { delete entry[field]; deferred = true; }
         }
         if (entry.kind === 'approval' && entry.review?.text) {
-          entry.review = { completeness: 'unavailable', reason: 'Load message details to read this saved review.' };
+          entry.review = { completeness: 'unavailable', reason: 'Saved review details are deferred.' };
           deferred = true;
         }
       }
       if (serializedBytes(message.turn) > 8 * 1024) {
-        deferred = true;
+        inlineDeferred = true;
         message.turn.entries = message.turn.entries.slice(-8).map(entry => entry.kind === 'assistant'
           ? { ...entry, text: excerpt(entry.text, 512) }
           : entry.kind === 'tool' || entry.kind === 'approval' ? { ...entry, summary: excerpt(entry.summary || '', 512) } : entry);
       }
     }
-    if (message.diagramAttachments.length) { message.diagramAttachments = []; deferred = true; }
+    for (const attachment of message.diagramAttachments) {
+      if (attachment.marksSnapshot.length) { attachment.marksSnapshot = []; deferred = true; }
+    }
     if (message.fileAttachments?.length) {
       message.fileAttachments = message.fileAttachments.map(file => ({ ...file, text: '' }));
       deferred = true;
     }
   } else if (message.blocks.some(block => block.kind === 'diagram')) {
     message.blocks = message.blocks.filter(block => block.kind !== 'diagram');
-    deferred = true;
+    inlineDeferred = true;
   }
   // Bound even a single enormous answer, including JSON escaping and multibyte text.
   for (let bytes = 12 * 1024; ; bytes = Math.floor(bytes / 2)) {
     if (message.role === 'user') {
       const text = excerpt(message.text, bytes);
-      deferred ||= text !== message.text;
+      inlineDeferred ||= text !== message.text;
       message.text = text;
     } else {
       const markdown = excerpt(message.rawMarkdown, bytes);
-      deferred ||= markdown !== message.rawMarkdown;
+      inlineDeferred ||= markdown !== message.rawMarkdown;
       message.rawMarkdown = markdown;
       let remaining = bytes;
       message.blocks = message.blocks.flatMap(block => {
@@ -60,7 +62,7 @@ function previewMessage(original: ChatMessage): { message: ChatMessage; deferred
         const source = block.kind === 'markdown' ? block.markdown : block.source;
         const text = excerpt(source, remaining);
         remaining -= encoder.encode(text).length;
-        deferred ||= text !== source;
+        inlineDeferred ||= text !== source;
         return [block.kind === 'markdown' ? { ...block, markdown: text } : { ...block, source: text }];
       });
     }
@@ -68,10 +70,10 @@ function previewMessage(original: ChatMessage): { message: ChatMessage; deferred
     if (bytes === 0) {
       if (message.role === 'user' && message.turn) message.turn.entries = [];
       else if (message.role === 'assistant') message.blocks = [];
-      deferred = true;
+      inlineDeferred = true;
       break;
     }
-    deferred = true;
+    inlineDeferred = true;
     // Evidence is available from the complete-message read, never silently discarded.
     if (message.role === 'user') {
       message.diagramAttachments = [];
@@ -80,7 +82,14 @@ function previewMessage(original: ChatMessage): { message: ChatMessage; deferred
       message.imageAttachments = [];
     } else message.blocks = message.blocks.slice(0, 8);
   }
-  return { message, deferred };
+  const needsCompleteMessage = message.role === 'user'
+    ? message.status !== 'sent' || message.turn?.lifecycle === 'queued'
+    : message.planProposed;
+  if (needsCompleteMessage) {
+    // Editing, retrying or executing a plan needs the complete saved message.
+    inlineDeferred ||= deferred;
+  }
+  return { message, deferred: deferred || inlineDeferred, inlineDeferred };
 }
 
 export function sessionCanvases(session: PublicSession): SessionCanvases {
@@ -94,7 +103,7 @@ export function sessionCanvases(session: PublicSession): SessionCanvases {
 export function sessionPage(session: PublicSession, before?: string): SessionPage {
   const end = before === undefined ? session.messages.length : session.messages.findIndex(message => message.id === before);
   if (end < 0) throw new Error('This history position is no longer available. Reopen the conversation.');
-  const messages: ChatMessage[] = [], deferredMessageIds: string[] = [];
+  const messages: ChatMessage[] = [], deferredMessageIds: string[] = [], inlineDeferredMessageIds: string[] = [];
   let bytes = 2, start = end;
   while (start > 0 && messages.length < SESSION_PAGE_LIMITS.messages) {
     const preview = previewMessage(session.messages[start - 1]);
@@ -102,12 +111,14 @@ export function sessionPage(session: PublicSession, before?: string): SessionPag
     if (messages.length && bytes + size > SESSION_PAGE_LIMITS.pageBytes) break;
     messages.unshift(preview.message);
     if (preview.deferred) deferredMessageIds.unshift(preview.message.id);
+    if (preview.inlineDeferred) inlineDeferredMessageIds.unshift(preview.message.id);
     bytes += size;
     start--;
   }
   const canvas = sessionCanvases(session);
   return { session: { ...session, messages, annotations: {}, sketches: [] }, history: {
     ...(start > 0 && messages.length ? { before: messages[0].id } : {}), deferredMessageIds,
+    inlineDeferredMessageIds,
     canvasIds: [...canvas.canvases.map(item => item.id), ...canvas.sketches.map(item => item.id)], canvasesLoaded: false,
   } };
 }

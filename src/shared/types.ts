@@ -633,6 +633,8 @@ export interface SessionHistoryState {
   /** Stable exclusive cursor; absent when the beginning has been loaded. */
   before?: string;
   deferredMessageIds: string[];
+  /** Subset whose visible content was clipped. Older executors omit this distinction. */
+  inlineDeferredMessageIds?: string[];
   canvasIds: string[];
   canvasesLoaded: boolean;
 }

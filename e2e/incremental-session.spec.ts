@@ -34,10 +34,12 @@ async function fixture(request: APIRequestContext, hugeAnswer = false) {
     { kind: 'tool', id: 'saved-tool', firstSequence: 1, sequence: 1, attempt: 1, tool: 'Read', summary: 'Saved tool', status: 'succeeded', output: 'Saved tool output.\n'.repeat(700) },
     { kind: 'assistant', id: 'saved-final', firstSequence: 2, sequence: 2, attempt: 1, text: '', complete: true, canonicalMessageId: saved.messages[79].id },
   ] };
-  if (hugeAnswer && saved.messages[79].role === 'assistant') {
-    const answer = `Saved answer 79\n\n${'Long answer paragraph.\n\n'.repeat(2000)}Tail marker`;
-    saved.messages[79].rawMarkdown = answer;
-    saved.messages[79].blocks = [{ kind: 'markdown', markdown: answer }];
+  if (hugeAnswer) for (const index of [77, 79]) {
+    const message = saved.messages[index];
+    if (message.role !== 'assistant') throw new Error('Expected a saved reply.');
+    const answer = `Saved answer ${index}\n\n${'Long answer paragraph.\n\n'.repeat(2000)}${index === 79 ? 'Tail marker' : 'Earlier tail'}`;
+    message.rawMarkdown = answer;
+    message.blocks = [{ kind: 'markdown', markdown: answer }];
   }
   expect(durableSessionSchema.safeParse(saved).success).toBe(true);
   await writeFile(filename, JSON.stringify(saved));
@@ -132,16 +134,32 @@ test('a delayed old page cannot replace a newer live reply or block complete app
   } finally { release(); }
 });
 
-test('canonical nested replies can load complete details and export contains all unloaded history and evidence', async ({ page, request }) => {
+test('a clipped nested reply fills in automatically and export includes unopened evidence', async ({ page, request }) => {
   const { session, fileText } = await fixture(request, true);
-  await page.goto(`/?session=${session.id}`);
-  await expect(composer(page)).toBeVisible();
-  await expect(conversation(page)).not.toContainText('Tail marker');
-  const user = conversation(page).locator(`[data-message-id="${session.messages[78].id}"]`);
-  await user.getByRole('button', { name: 'Load message details', exact: true }).first().click();
-  await expect(user.locator('.turn-activity')).toContainText('Saved tool');
-  await user.getByRole('button', { name: 'Load message details', exact: true }).last().click();
-  await expect(conversation(page)).toContainText('Tail marker');
+  const detailReads: string[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/sessions/${session.id}?view=message&messageId=*`, async route => {
+    detailReads.push(new URL(route.request().url()).searchParams.get('messageId')!);
+    await gate;
+    await route.continue();
+  });
+  try {
+    await page.goto(`/?session=${session.id}`);
+    await expect(composer(page)).toBeVisible();
+    await expect(conversation(page)).toContainText('Saved answer 79');
+    await expect(conversation(page)).not.toContainText('Tail marker');
+    await expect(conversation(page)).not.toContainText(/Message preview|Load message details/i);
+    const lastReply = conversation(page).locator('[data-activity-id="saved-final"]');
+    await expect(lastReply.getByRole('button', { name: 'Copy reply' })).toBeDisabled();
+    await composer(page).fill('Draft while the reply fills in');
+    await expect.poll(() => detailReads).toEqual([session.messages[79].id]);
+    release();
+    await expect(conversation(page)).toContainText('Tail marker');
+    await expect(composer(page)).toHaveValue('Draft while the reply fills in');
+    await expect(conversation(page).getByText('Tail marker', { exact: true })).toBeInViewport();
+    await expect(lastReply.getByRole('button', { name: 'Copy reply' })).toBeEnabled();
+  } finally { release(); }
   await page.getByRole('button', { name: 'More', exact: true }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export session', exact: true }).click();
@@ -152,8 +170,36 @@ test('canonical nested replies can load complete details and export contains all
   expect(exported.session).not.toHaveProperty('history');
   expect(exported.session).not.toHaveProperty('canvases');
   const full = JSON.stringify((await (await request.get(`/api/sessions/${session.id}`)).json()).session);
-  const recent = JSON.stringify(await (await request.get(`/api/sessions/${session.id}?view=recent`)).json());
+  const recentPage = await (await request.get(`/api/sessions/${session.id}?view=recent`)).json();
+  expect(recentPage.history.inlineDeferredMessageIds).toEqual([session.messages[77].id, session.messages[79].id]);
+  const recent = JSON.stringify(recentPage);
   expect(Buffer.byteLength(recent)).toBeLessThan(Buffer.byteLength(full) / 4);
+  expect(detailReads).toEqual([session.messages[79].id]);
+});
+
+for (const kind of ['file', 'tool']) test(`opening a saved ${kind} fetches details and a failed read can be retried`, async ({ page, request }) => {
+  const { session } = await fixture(request);
+  let reads = 0;
+  await page.route(`**/api/sessions/${session.id}?view=message&messageId=*`, async route => {
+    expect(new URL(route.request().url()).searchParams.get('messageId')).toBe(session.messages[78].id);
+    if (++reads === 1) await route.fulfill({ status: 503, json: { error: 'Saved details are temporarily unavailable.' } });
+    else await route.continue();
+  });
+  await page.goto(`/?session=${session.id}`);
+  await composer(page).fill('Retained draft');
+  const user = conversation(page).locator(`[data-message-id="${session.messages[78].id}"]`);
+  await expect(user).toContainText('Saved question 78');
+  const section = user.getByRole('button', { name: kind === 'file' ? /evidence.txt/ : /Saved tool/ });
+  await expect(section).toHaveAttribute('aria-expanded', 'false');
+  expect(reads).toBe(0);
+  await section.click();
+  const alert = user.getByRole('alert');
+  await expect(alert).toContainText('temporarily unavailable');
+  await alert.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(user.getByText(kind === 'file' ? /^Complete saved file evidence/ : /^Saved tool output/)).toBeVisible();
+  await expect(section).toHaveAttribute('aria-expanded', 'true');
+  await expect(composer(page)).toHaveValue('Retained draft');
+  expect(reads).toBe(2);
 });
 
 test('a pending canvas read preserves click-time text and leaves later draft edits intact', async ({ page, request }) => {

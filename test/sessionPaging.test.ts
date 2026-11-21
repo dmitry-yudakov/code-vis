@@ -37,7 +37,7 @@ describe('incremental session reads', () => {
   it('bounds oversized messages including Unicode and JSON escaping, deferring complete evidence and activity', () => {
     const canonical = fixture(2);
     const user = canonical.messages[0] as UserMessage;
-    user.turn = { ...createTurn('run', user.id, 'agent', ''), entries: [{
+    user.turn = { ...createTurn('run', user.id, 'agent', ''), lifecycle: 'completed', entries: [{
       kind: 'tool', id: 'tool', firstSequence: 1, sequence: 1, attempt: 0, tool: 'shell', status: 'succeeded', output: 'output'.repeat(100_000),
     }] };
     user.fileAttachments = [{ name: 'notes.txt', text: 'private file contents'.repeat(10_000), bytes: 210_000, digest: 'a'.repeat(64) }];
@@ -48,6 +48,7 @@ describe('incremental session reads', () => {
     expect(serializedBytes(page.session.messages)).toBeLessThanOrEqual(SESSION_PAGE_LIMITS.pageBytes);
     for (const message of page.session.messages) expect(serializedBytes(message)).toBeLessThanOrEqual(SESSION_PAGE_LIMITS.messageBytes);
     expect(page.history.deferredMessageIds).toEqual([user.id, answer.id]);
+    expect(page.history.inlineDeferredMessageIds).toEqual([answer.id]);
     expect(JSON.stringify(page)).not.toContain('private file contents');
     expect(JSON.stringify(page)).not.toContain('outputoutput');
     expect(JSON.stringify(page)).not.toContain('�');
@@ -81,7 +82,33 @@ describe('incremental session reads', () => {
     const page = sessionPage(canonical);
     expect(serializedBytes(page.session.messages[0])).toBeLessThanOrEqual(SESSION_PAGE_LIMITS.messageBytes);
     expect(page.history.deferredMessageIds).toEqual([user.id]);
+    expect(page.history.inlineDeferredMessageIds).toEqual([user.id]);
     expect(user.turn.entries).toHaveLength(8);
+  });
+
+  it('loads a sent queued message with deferred file evidence so it can be edited', () => {
+    const canonical = fixture(1);
+    const user = canonical.messages[0] as UserMessage;
+    user.fileAttachments = [{ name: 'evidence.txt', bytes: 8, text: 'evidence', digest: 'a'.repeat(64) }];
+    user.turn = { ...createTurn('run', user.id, 'agent', ''), lifecycle: 'queued' };
+    const page = sessionPage(canonical);
+    expect(page.history.inlineDeferredMessageIds).toEqual([user.id]);
+    expect((page.session.messages[0] as UserMessage).fileAttachments?.[0].text).toBe('');
+  });
+
+  it('preserves inline detail ids on prepend and refresh, including older executor pages', () => {
+    const canonical = fixture(22);
+    const answer = canonical.messages[1] as AssistantMessage;
+    answer.rawMarkdown = 'Answer '.repeat(3000);
+    answer.blocks = [{ kind: 'markdown', markdown: answer.rawMarkdown }];
+    const recent = mergeSessionPage(sessionPage(canonical));
+    const before = recent.history!.before!;
+    const older = sessionPage(canonical, before);
+    expect(older.history.inlineDeferredMessageIds).toEqual([answer.id]);
+    delete older.history.inlineDeferredMessageIds;
+    const completeRange = mergeSessionPage(older, recent, undefined, before);
+    const refreshed = mergeSessionPage(sessionPage(canonical), completeRange);
+    expect(refreshed.history?.inlineDeferredMessageIds).toEqual([answer.id]);
   });
 
   it('refreshes recent content without discarding loaded older messages or full message details', () => {
