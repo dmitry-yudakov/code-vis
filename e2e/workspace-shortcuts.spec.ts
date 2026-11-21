@@ -20,6 +20,44 @@ const picker = (page: Page) => page.getByRole('dialog', { name: 'Open file', exa
 const search = (page: Page) => picker(page).getByRole('combobox', { name: 'File name or path', exact: true });
 const source = (page: Page) => page.locator('.file-view-content:not([hidden])').getByLabel('File source');
 
+for (const modifier of ['Control', 'Meta']) {
+  test(`${modifier}+J opens Arena from the composer and Back restores the draft`, async ({ page, request }) => {
+    await openWorkspace(page, request);
+    const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
+    await input.fill('Keep my Arena jump draft');
+    const sessionUrl = page.url();
+    await input.press(`${modifier}+j`);
+    await expect(page).toHaveURL(/\/arena$/);
+    await expect(page.getByRole('heading', { name: 'Arena', exact: true })).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(sessionUrl);
+    await expect(input).toHaveValue('Keep my Arena jump draft');
+    await expect(page.getByRole('link', { name: 'Arena', exact: true })).toHaveAttribute('aria-keyshortcuts', 'Control+J Meta+J');
+  });
+}
+
+test('the Arena shortcut leaves modified keys, composition, open pickers and project views alone', async ({ page, request }) => {
+  await openWorkspace(page, request);
+  const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
+  const sessionUrl = page.url();
+  for (const extra of [{ isComposing: true }, { altKey: true }, { shiftKey: true }, { metaKey: true }]) {
+    expect(await input.evaluate((node, extra) => node.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'j', ctrlKey: true, ...extra, bubbles: true, cancelable: true,
+    })), extra)).toBe(true);
+  }
+  await input.press('Control+p');
+  await expect(search(page)).toBeFocused();
+  await search(page).press('Meta+j');
+  await expect(search(page)).toBeFocused();
+  await expect(page).toHaveURL(sessionUrl);
+  await openWorkspace(page, request, false);
+  const link = page.getByRole('link', { name: 'Arena', exact: true });
+  await expect(link).not.toHaveAttribute('aria-keyshortcuts', /./);
+  expect(await link.evaluate(node => node.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'j', ctrlKey: true, bubbles: true, cancelable: true,
+  })))).toBe(true);
+});
+
 for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
   test(`${theme} ${width}: fuzzy file opening and Shift+Esc preserve drafts and tab state`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });

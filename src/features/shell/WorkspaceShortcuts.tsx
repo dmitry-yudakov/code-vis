@@ -10,8 +10,9 @@ const paneSelectors: Record<Pane, string> = {
 };
 
 /** Mounted only for the focused flat workspace. Remember deliberate pointer/keyboard activity. */
-export function WorkspaceShortcuts({ shellRef, layout }: {
+export function WorkspaceShortcuts({ shellRef, layout, arenaLink }: {
   shellRef: RefObject<HTMLElement | null>; layout: { maximized: Pane | null; toggleMaximized(pane: Pane): void };
+  arenaLink?: RefObject<HTMLAnchorElement | null>;
 }) {
   const files = useRepositoryFiles();
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -25,13 +26,18 @@ export function WorkspaceShortcuts({ shellRef, layout }: {
     const visible = (pane: Pane) => Boolean(shell.querySelector(paneSelectors[pane])?.getClientRects().length);
     const shortcut = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.altKey) return;
+      const arenaTarget = event.key.toLowerCase() === 'j' && event.ctrlKey !== event.metaKey && !event.shiftKey
+        ? arenaLink?.current : null;
       const openFile = (event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 'p';
       const maximize = event.key === 'Escape' && event.shiftKey && !event.ctrlKey && !event.metaKey;
-      if (!openFile && !maximize) return;
+      if (!openFile && !maximize && !arenaTarget) return;
       if (openFile && pickerOpen) { event.preventDefault(); return; }
       if ([...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="menu"], .desktop-picker-paper')].some(element => element.getClientRects().length > 0
         && getComputedStyle(element).visibility !== 'hidden')) return;
-      if (openFile) {
+      if (arenaTarget) {
+        event.preventDefault();
+        if (!event.repeat) arenaTarget.click();
+      } else if (openFile) {
         if (!files?.repositories.length) return;
         event.preventDefault();
         if (!event.repeat) setPickerOpen(true);
@@ -54,6 +60,6 @@ export function WorkspaceShortcuts({ shellRef, layout }: {
       shell.removeEventListener('focusin', remember, true);
       document.removeEventListener('keydown', shortcut, true);
     };
-  }, [shellRef, files?.repositories.length, layout, pickerOpen]);
+  }, [shellRef, files?.repositories.length, layout, pickerOpen, arenaLink]);
   return pickerOpen ? <QuickFilePicker onClose={() => setPickerOpen(false)} /> : null;
 }

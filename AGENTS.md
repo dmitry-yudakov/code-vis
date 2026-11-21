@@ -106,7 +106,9 @@ Updated 2026-11-20. When a story ships, change the line that names it; each stor
   restores the active pane, and Ctrl/Cmd+P opens fuzzy project file search with keyboard selection,
   retained tabs/drafts, retry and attached-machine routing. All 112 focused unit checks,
   48 distinct production-browser cases, TypeScript, isolated build, both-theme desktop/phone
-  screenshot inspection and independent review pass. The running app has not been rebuilt or restarted.
+  screenshot inspection and independent review pass. The November 21 follow-up adds Ctrl/Cmd+J
+  to open Arena from a session, with browser Back restoring the draft. Verified in desktop Chrome
+  on Linux with a native keystroke. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 142](stories/STORY-20261116-git-stage-commit-details.md) — Changes stages/
   unstages files individually or in bulk and commits the reviewed index with retained drafts;
   History expands full commit metadata, changed files and committed patches. One status snapshot

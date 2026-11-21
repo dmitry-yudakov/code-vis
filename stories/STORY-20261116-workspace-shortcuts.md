@@ -63,3 +63,17 @@ Real attached-executor transport, physical phone keyboards and native macOS brow
 were not exercised; browser tests cover the gateway URL and both Control and Meta modifiers.
 
 No dependencies, persistent formats, staging, commits, deployment or running-application restart.
+
+## November 21 follow-up — Jump to Arena
+
+- [x] From a flat session, Ctrl+J or Cmd+J opens the same Arena page as the navigation link.
+  Browser Back returns to the conversation with its draft intact.
+- [x] The Arena link advertises the shortcut in the session. Dialogs, menus, IME composition,
+  modified combinations and workspaces without an open session keep their keyboard handling.
+
+The shortcut activates the existing header link in `src/features/shell/WorkspaceShortcuts.tsx:37`.
+The regression failed on the previous build. All 13 workspace shortcut browser tests and 34
+focused unit tests pass, as do the isolated production build, TypeScript check and independent
+review. In desktop Chrome on Linux, an OS-level Ctrl+J opened Arena from a draft and opened
+Downloads when pressed again on Arena. Playwright exercised Meta+J on Linux. Native macOS
+keyboard handling was not exercised.

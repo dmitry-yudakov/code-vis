@@ -1468,6 +1468,8 @@ path and file/diff view are sent; the agent can read it when relevant. Use × to
 or **Add active file to context** to include it again. Hiding the pane keeps its reference.
 New conversations can carry over the project's active file; each conversation keeps its own tabs. Docker context
 uses its mounted primary repository. Selected text is not included.
+**Cmd+J** (Mac) or **Ctrl+J** (Windows/Linux) opens Arena from a session, including while typing.
+Browser Back returns to the conversation with its draft.
 **Ctrl/Cmd+P** opens a fuzzy file picker for the current project's repositories. Type a file name
 or path, use Up/Down to choose, Enter to open, and Escape to cancel. Git projects include tracked
 and untracked files while honoring ignore rules. Plain folders skip common generated directories.

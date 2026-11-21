@@ -93,7 +93,7 @@ import type { DesktopPopoverHandle } from './DesktopPopover';
 import { useTheme, type ThemePreference } from './useTheme';
 import { LIGHT_THEMES, type LightThemeName } from '@/shared/design/tokens';
 import { usePanelLayout } from './usePanelLayout';
-import { ActivityBar } from './ActivityBar';
+import { ActivityBar, ARENA_SHORTCUT_HINT } from './ActivityBar';
 import { ShellIcon } from './ShellIcon';
 import { LayoutToggles } from './LayoutToggles';
 import { useWorkspaceViews } from './useWorkspaceViews';
@@ -196,6 +196,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [savedCheckoutId, setSavedCheckoutId] = useState<string>();
   const [catalogReady, setCatalogReady] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
+  const arenaLink = useRef<HTMLAnchorElement>(null);
   const moreMenuRef = useRef<DesktopPopoverHandle>(null);
   const [machineSettingsOpen, setMachineSettingsOpen] = useState(false);
   const [observerOpen, setObserverOpen] = useState(false);
@@ -2980,18 +2981,21 @@ export function AppShell({ children }: { children: ReactNode }) {
   const projectDeletionBusy = projectManagementTarget?.action === 'delete' && managedSessions.some(item =>
     sendingSessions.current.has(item.id) || acceptanceChecks.current.has(item.id) || reconnectingRuns.current.has(item.id)
     || Boolean(runsBySession[item.id]) || managementMachine?.runs.active.some(run => run.sessionId === item.id));
+  const canJumpToArena = Boolean(session) && !openingWorkspace && !navigationError && !arenaOpen && !immersiveActive;
+  const arenaShortcutHint = canJumpToArena ? ARENA_SHORTCUT_HINT : undefined;
 
   return (
     <RepositoryFilesProvider value={repositoryFiles}>
     {!loading && !arenaOpen && !immersiveActive && (session || projectWorkspace) && <WorkspaceShortcuts
-      key={`${repositoryApiBase}:${session?.id || projectScope}`} shellRef={shellRef} layout={panelLayout} />}
+      key={`${repositoryApiBase}:${session?.id || projectScope}`} shellRef={shellRef} layout={panelLayout}
+      arenaLink={canJumpToArena ? arenaLink : undefined} />}
     <div
       ref={shellRef}
       className={`app-shell dock-capacity-${panelLayout.dockCapacity} ${projectWorkspace && !arenaOpen ? 'project-workspace' : ''} ${maximized ? `pane-maximized maximized-${maximized}` : ''} ${arenaOpen ? 'arena-mode' : ''} ${canvasHidden ? 'canvas-hidden' : ''}`}
       style={panelLayout.shellStyle}
     >
       <header className="app-header">
-        <Link className="brand" href={ARENA_SECTION_PATHS.sessions} scroll={false}
+        <Link ref={arenaLink} className="brand" href={ARENA_SECTION_PATHS.sessions} scroll={false} {...arenaShortcutHint}
           aria-label="CodeAI Arena" aria-current={arenaSection === 'sessions' ? 'page' : undefined}>
           <span className="brand-mark" aria-hidden="true">C</span><strong>CodeAI</strong>
         </Link>
@@ -3263,6 +3267,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           shownView={panelLayout.sideShown ? sideView : undefined}
           changeCount={repositoryTree?.files.length}
           arenaSection={arenaSection}
+          arenaShortcutHint={arenaShortcutHint}
           unread={arenaUnread.length}
           updateCount={availableProviderUpdateCount}
           moreRef={moreMenuRef}
@@ -3272,7 +3277,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Button onClick={() => { moreMenuRef.current?.close(); setObserverOpen(true); }}>Observer</Button>
             {compact && <>
               {!arenaOpen && session && <>
-                <Button component={Link} href="/arena" onClick={() => moreMenuRef.current?.close()}>Arena</Button>
+                <Button component={Link} href={ARENA_SECTION_PATHS.sessions} {...arenaShortcutHint} onClick={() => moreMenuRef.current?.close()}>Arena</Button>
                 <Button component={Link} href="/arena/inbox" onClick={() => moreMenuRef.current?.close()}>Inbox{arenaUnread.length ? ` · ${arenaUnread.length} unread` : ''}</Button>
                 {reportsOffered && <Button onClick={() => { moreMenuRef.current?.close(); panelLayout.selectSideTab('reports'); }}>Reports</Button>}
               </>}

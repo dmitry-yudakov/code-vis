@@ -10,12 +10,14 @@ import { ShellIcon } from './ShellIcon';
 
 const VIEW_LABELS: Record<SideTab, string> = { files: 'Files', changes: 'Repository', history: 'History', reports: 'Reports' };
 
+export const ARENA_SHORTCUT_HINT = { title: 'Arena · Ctrl/Cmd+J', 'aria-keyshortcuts': 'Control+J Meta+J' };
+
 /**
  * The column of views beside the side panel. The session's views toggle the side panel; the Arena
  * and the Inbox are pages of their own until they become side-panel views (Story 75). Global
  * navigation stays together at the bottom, ending with More as a gear.
  */
-export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, unread, updateCount = 0, more, moreRef, onMoreToggle, onToggleView, compact = false, workspace }: {
+export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, arenaShortcutHint, unread, updateCount = 0, more, moreRef, onMoreToggle, onToggleView, compact = false, workspace }: {
   compact?: boolean;
   workspace?: ReactNode;
   /** Empty where no session is shown: the Arena page and the welcome screen. */
@@ -23,6 +25,7 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
   shownView?: SideTab;
   changeCount?: number;
   arenaSection?: ArenaSection;
+  arenaShortcutHint?: typeof ARENA_SHORTCUT_HINT;
   unread: number;
   updateCount?: number;
   more: ReactNode;
@@ -66,6 +69,7 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, u
         aria-label="Arena"
         aria-current={arenaSection === 'sessions' ? 'page' : undefined}
         title="Arena"
+        {...arenaShortcutHint}
       ><ShellIcon name="arena" />{compact && <span className="activity-label">Arena</span>}</IconButton>
       <IconButton component={Link}
         href={ARENA_SECTION_PATHS.inbox}
