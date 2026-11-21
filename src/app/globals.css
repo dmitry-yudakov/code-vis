@@ -938,7 +938,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .dock-capacity-0 .new-session-label { display: none; }
 .dock-capacity-0 .new-session-menu > button { min-width: 40px; min-height: 40px; padding-inline: 6px; }
 /* Keep the capability-based VR entry. Routine health/device details live in More. */
-.dock-capacity-0 .header-actions { flex: none; gap: 0; }
+.dock-capacity-0 .header-actions { flex: none; }
 .dock-capacity-0 .header-actions .health-pill { display: none; }
 .dock-capacity-0 .activity-bar { flex-direction: row; justify-content: space-around; padding: 0 4px env(safe-area-inset-bottom, 0px); gap: 0; border-right: 0; border-top: 1px solid var(--line); }
 .dock-capacity-0 .activity-bar .activity-item, .dock-capacity-0 .activity-bar .more-menu > button, .dock-capacity-0 .activity-bar .layout-toggle { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 56px; height: 48px; padding: 0; border-radius: 6px; font-size: 10px; color: var(--muted); }
