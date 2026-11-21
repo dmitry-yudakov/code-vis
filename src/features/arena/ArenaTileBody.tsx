@@ -11,6 +11,8 @@ import { MAX_MESSAGE_TEXT_CHARS } from '@/shared/limits';
 import type { ArenaMachineSnapshot } from '@/shared/types';
 import type { ArenaSessionCard } from './arenaModel';
 import type { ArenaReplyOptions, useArenaReplies } from './useArenaReplies';
+import { chatCommand } from '@/features/conversation/chatCommands';
+import { useChatCommandInput } from '@/features/conversation/ChatCommandInput';
 
 export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePermission }: {
   machine: ArenaMachineSnapshot;
@@ -31,13 +33,15 @@ export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePe
   const disabled = !fresh || draft.busy || Boolean(replies.blockedReason);
   const frozen = Boolean(draft.delivery);
   const locked = disabled || frozen;
+  const command = !frozen ? chatCommand(draft.text) : undefined;
+  const commandInput = useChatCommandInput(draft.text, text => replies.edit(machine.machine.id, session.id, { text }), !locked, true);
   const message = session.lastMessage;
   const missingImages = (draft.delivery?.imageCount || 0) > (draft.images?.length || 0);
-  const sendLabel = draft.busy ? 'Sending…' : frozen ? missingImages ? 'Check delivery' : 'Check / retry' : 'Send';
+  const sendLabel = draft.busy ? 'Sending…' : frozen ? missingImages ? 'Check delivery' : 'Check / retry' : command ? 'Run command' : 'Send';
   const canSend = !draft.busy && !draft.preparing && Boolean(draft.text.trim() || draft.images?.length || draft.delivery) && (frozen
     ? machine.machine.state === 'online'
-    : !disabled && !run && !options.unavailableReason && options.modes.includes(mode));
-  const send = () => { if (canSend) void replies.send(machine, session, options); };
+    : !disabled && (command ? command.kind === 'autoclose' || !run : !run && !options.unavailableReason && options.modes.includes(mode)));
+  const send = () => { if (canSend) { commandInput.dismiss(); void replies.send(machine, session, options); } };
   return (
     <div className="arena-tile-body">
       <div className="arena-tile-preview">
@@ -56,6 +60,7 @@ export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePe
       </div>)}
       {permissionError && <Alert severity="error">{permissionError}</Alert>}
       <form className="arena-tile-reply" aria-label={`Reply to ${session.title}`} onSubmit={event => { event.preventDefault(); send(); }}>
+        {commandInput.list}
         {Boolean(draft.images?.length) && <div className="attachment-chips" aria-label="Attached images">
           {draft.images!.map((image, index) => <AttachmentChip key={image.id} className="image" removeLabel={`Remove image ${index + 1}`} disabled={Boolean(locked)}
             onRemove={() => replies.removeImage(machine.machine.id, session.id, image.id)}>
@@ -63,22 +68,27 @@ export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePe
           </AttachmentChip>)}
         </div>}
         <TextField className="arena-tile-reply-field" variant="standard" multiline minRows={1} maxRows={3} fullWidth placeholder="Quick reply…" value={draft.text}
+          inputRef={commandInput.ref}
           disabled={!fresh} slotProps={{ input: { disableUnderline: true, readOnly: Boolean(locked), endAdornment: <InputAdornment position="end">
             <Button type="submit" className="send-button" variant="contained" disabled={!canSend}
               aria-label={sendLabel} title={sendLabel}>
               <span aria-hidden="true">{draft.busy ? '…' : frozen ? '↻' : '↑'}</span>
             </Button>
-          </InputAdornment> }, htmlInput: { 'aria-label': `Reply to ${session.title}`, maxLength: MAX_MESSAGE_TEXT_CHARS } }}
-          onChange={event => replies.edit(machine.machine.id, session.id, { text: event.target.value })}
+          </InputAdornment> }, htmlInput: { 'aria-label': `Reply to ${session.title}`, maxLength: MAX_MESSAGE_TEXT_CHARS, ...commandInput.aria } }}
+          onChange={commandInput.onChange} onFocus={commandInput.onFocus} onBlur={commandInput.onBlur} onSelect={commandInput.onSelect}
           onPaste={event => {
             const files = pastedImageFiles(event.clipboardData);
             if (!files.length) return;
             event.preventDefault();
             if (!locked) void replies.addImages(machine.machine.id, session.id, files);
           }}
-          onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !event.repeat) { event.preventDefault(); send(); } }} />
+          onKeyDown={event => {
+            if (commandInput.onKeyDown(event)) return;
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !event.repeat) { event.preventDefault(); send(); }
+          }} />
         {draft.preparing && <span role="status" className="arena-tile-caption">Preparing images…</span>}
         {draft.error && <Alert severity="warning">{draft.error}</Alert>}
+        {draft.feedback && <span role="status" className="arena-tile-caption">{draft.feedback}</span>}
         {replies.blockedReason ? <span role="status" className="arena-tile-caption">{replies.blockedReason}</span>
           : draft.sent ? <span role="status" className="arena-tile-caption">Sent</span>
           : options.unavailableReason ? <span className="arena-tile-caption">{options.unavailableReason}</span>

@@ -9,6 +9,7 @@ import { reconcileMessageAcceptance } from '@/features/conversation/draftLifecyc
 import { MAX_IMAGES_PER_MESSAGE } from '@/shared/limits';
 import { prepareImage } from '@/features/conversation/imageAttachments';
 import { ARENA_REPLY_STORAGE_KEY, createArenaReplyStore, parseArenaReplies, serializeArenaReplies, type ArenaReplyState } from './arenaReplyDrafts';
+import { chatCommand } from '@/features/conversation/chatCommands';
 
 export interface ArenaReplyOptions {
   mode: AgentMode;
@@ -19,7 +20,11 @@ export interface ArenaReplyOptions {
 const keyFor = (machineId: string, sessionId: string) => `${machineId}:${sessionId}`;
 
 /** Shell ownership survives navigation; tab-local drafts and request identities survive reload. */
-export function useArenaReplies(localMachineId: string | undefined, blockedReason?: string) {
+export function useArenaReplies(localMachineId: string | undefined, blockedReason: string | undefined, commands: {
+  archive(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
+  newChat(machineId: string, session: PublicSession, options: ArenaReplyOptions): Promise<boolean>;
+  saved(machineId: string, session: PublicSession): void;
+}) {
   const [store] = useState(createArenaReplyStore);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const sending = useRef(new Set<string>());
@@ -45,7 +50,7 @@ export function useArenaReplies(localMachineId: string | undefined, blockedReaso
   const edit = (machineId: string, sessionId: string, update: Pick<ArenaReplyState, 'text'>) => {
     const key = keyFor(machineId, sessionId);
     if (sending.current.has(key) || store.get(key).delivery) return;
-    patch(key, { ...update, error: undefined, sent: false }, true);
+    patch(key, { ...update, error: undefined, feedback: undefined, sent: false }, true);
   };
   const addImages = async (machineId: string, sessionId: string, files: File[]) => {
     const key = keyFor(machineId, sessionId);
@@ -79,14 +84,24 @@ export function useArenaReplies(localMachineId: string | undefined, blockedReaso
     const draft = store.get(key);
     if (!localMachineId || (!draft.text.trim() && !draft.images?.length && !draft.delivery) || sending.current.has(key) || preparing.current.has(key)) return;
     const mode = draft.delivery?.mode ?? options.mode;
+    // Frozen deliveries must retry their original payload, without executing commands again.
+    const command = draft.delivery ? undefined : chatCommand(draft.text);
     const unavailable = blockedReason || options.unavailableReason
       || (machine.machine.state !== 'online' || machine.snapshotFresh === false ? 'Refresh the overview before replying. Your draft is kept.' : undefined)
       || (!options.modes.includes(mode) ? 'This mode is unavailable. Open the session to change it before replying.' : undefined)
       || (machine.runs.active.some(run => run.sessionId === summary.id) ? 'Wait for the current turn to finish.' : undefined);
-    if (!draft.delivery && unavailable) { patch(key, { error: unavailable }); return; }
+    const commandBlocked = blockedReason
+      || (machine.machine.state !== 'online' || machine.snapshotFresh === false ? 'Refresh the overview before running commands. Your draft is kept.' : undefined)
+      || (command?.kind !== 'autoclose' && machine.runs.active.some(run => run.sessionId === summary.id) ? 'Wait for the current turn to finish.' : undefined);
+    if (!draft.delivery && (command ? commandBlocked : unavailable)) { patch(key, { error: command ? commandBlocked : unavailable }); return; }
     sending.current.add(key);
-    patch(key, { busy: true, error: undefined, sent: false });
+    patch(key, { busy: true, error: undefined, feedback: undefined, sent: false });
     try {
+      if (command?.kind === 'invalid') throw new Error(command.usage);
+      if (command?.kind === 'archive') {
+        if (!await commands.archive(machine.machine.id, summary)) throw new Error('Could not archive the session. Try again.');
+        patch(key, { text: '' }); return;
+      }
       const sessionUrl = machineApiPath(`/api/sessions/${encodeURIComponent(summary.id)}`, machine.machine.id, localMachineId);
       let saved: PublicSession | undefined;
       if (draft.delivery) {
@@ -107,6 +122,24 @@ export function useArenaReplies(localMachineId: string | undefined, blockedReaso
       }
       const session = saved;
       if (session.id !== summary.id || session.projectId !== summary.projectId || (!draft.delivery && session.primaryAgentId !== summary.primaryAgentId)) throw new Error('This session changed. Refresh the overview before replying.');
+      let text = draft.text.trim();
+      if (command?.kind === 'autoclose') {
+        const response = await fetch(sessionUrl, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ allowAgentArchive: command.allowed, expectedAllowAgentArchive: Boolean(session.allowAgentArchive) }),
+        });
+        const data = await response.json() as { session?: PublicSession; error?: string };
+        if (!response.ok || !data.session) throw new Error(data.error || 'Could not save archive permission. Try again.');
+        commands.saved(machine.machine.id, data.session);
+        text = command.remainingText || '';
+        patch(key, { text, feedback: `Auto-close ${command.allowed ? 'enabled' : 'disabled'}.` });
+        if (!text) return;
+        if (unavailable) throw new Error(unavailable);
+      }
+      if (command?.kind === 'new') {
+        if (!await commands.newChat(machine.machine.id, session, options)) throw new Error('Could not create the session. Try again.');
+        patch(key, { text: '' }); return;
+      }
       if (!session.repositories.some(repository => repository.role === 'primary')) throw new Error('Open this session and attach a primary repository before replying.');
       const recipientId = draft.delivery?.participantId ?? session.primaryAgentId;
       const agent = session.participants.find(participant => participant.kind === 'agent' && participant.id === recipientId);
@@ -117,7 +150,7 @@ export function useArenaReplies(localMachineId: string | undefined, blockedReaso
           session: { ...session, primaryAgentId: recipientId }, messageId: delivery.messageId, creationRequestId: delivery.messageId,
           settings: { machineId: machine.machine.id, projectId: session.projectId, execution: session.execution || 'local',
             checkoutMode: 'current', provider: agent.provider, mode: delivery.mode, modelSelection: delivery.modelSelection },
-          content: { text: draft.text.trim(), images: (draft.images || []).map(({ dataUrl }) => ({ dataUrl })), files: [], reportIds: [] },
+          content: { text, images: (draft.images || []).map(({ dataUrl }) => ({ dataUrl })), files: [], reportIds: [] },
       };
       patch(key, { delivery });
       // Existing background delivery owns acceptance reconciliation, stable UUID retries and stream detachment.

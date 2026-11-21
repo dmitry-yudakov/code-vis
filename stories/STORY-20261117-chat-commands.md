@@ -10,9 +10,11 @@ This advances the conversation workbench described in `docs/vision.md`.
 
 ## Current behavior (where the code is)
 
-- `src/features/conversation/chatCommands.ts:13` parses standalone commands and filters completions.
-- `src/features/conversation/InstructionComposer.tsx:386` handles commands with retained drafts
-  and attachments through failures, plus keyboard/mouse completion in the focused input.
+- `src/features/conversation/chatCommands.ts` parses session actions and inline auto-close controls.
+- `src/features/conversation/ChatCommandInput.tsx` shares caret-aware keyboard/mouse completion.
+- `src/features/conversation/InstructionComposer.tsx` handles commands with retained drafts
+  and attachments through failures and changes during saves.
+- `src/features/arena/useArenaReplies.ts` applies the same commands to machine-scoped quick replies.
 - `src/features/conversation/ConversationDrawer.tsx:215` exposes New chat and Archive controls.
 - `src/features/shell/AppShell.tsx:2310` opens inline setup after a fresh owner snapshot confirms
   the focused project's final session was archived. Archival and Undo share existing owners.
@@ -23,11 +25,12 @@ This advances the conversation workbench described in `docs/vision.md`.
 
 ## Desired behavior and invariants
 
-Typing a standalone leading `/` opens filtered command suggestions. Arrow keys navigate,
+Typing `/` opens filtered command suggestions in the conversation and Arena quick reply. Arrow keys navigate,
 Tab or Enter completes a partial command, and Enter executes a complete command. Escape dismisses
 suggestions; Shift+Enter and input method composition retain normal text editing.
 `/autoclose` enables automatic archiving by default; explicit `on` and `off` arguments
-enable or disable the same session permission setting.
+enable or disable the same session permission setting. Auto-close controls also work within a
+message, with completion at the caret. Save the setting before sending the remaining text.
 `/new` uses New chat; `/archive` and `/close` use the guarded, recoverable archive action.
 Commands stay local; ordinary text, paths and provider commands continue to reach the agent.
 Failed commands retain their text and evidence, and repeated submissions cannot duplicate actions.
@@ -107,3 +110,41 @@ After simplification, all **162 focused unit checks** and **42 production-browse
 isolated production build. Updated desktop/phone command screenshots were inspected. The parser
 regressions failed before the redundant command was removed and now pass with `/autoclose`
 defaulting to on. The complete Story 146 change is committed at the user's request.
+
+## November 21 — Arena quick reply and inline auto-close
+
+Arena quick replies now share the conversation's command completion and run local commands
+through the existing machine-scoped session actions. `/new`, `/archive` and `/close` remain
+standalone; `/autoclose` (default on) and `/autoclose on`/`off` may appear anywhere in a message.
+For example, `Do X, commit and close session /autoclose` saves archive permission and sends
+`Do X, commit and close session`, with the pending evidence. Sentence punctuation is accepted.
+Backtick examples, Markdown code fences, escaped slashes, paths and provider commands stay literal.
+
+Only `/autoclose` is suggested inside prose; completing at the caret preserves text on either
+side. Arena suggestions use an anchored popup so the reply stays visible within its card.
+A standalone setting command preserves attached evidence and never starts a provider turn.
+
+Failed permission saves retain the complete command/message and evidence for retry. During a
+live turn, saving the setting retains the remaining message for later. Navigation, text edits,
+or changed recipient/mode/model/evidence during a conversation save also preserve the draft for
+review. Arena freezes its accepted send choices, persists the cleaned text before submission,
+and retries uncertain delivery with the original message identity without replaying the command.
+
+- [x] Shared keyboard/mouse completion, including within multiline drafts and at the caret.
+- [x] Arena new/archive/close, local/attached-machine auto-close, running-turn guards and save recovery.
+- [x] Save-before-send with evidence, retained drafts after changes/navigation, and exact uncertain retries.
+
+All **107 focused unit checks**, TypeScript, `git diff --check` and the isolated production build
+into `.next-e2e/chat-commands` pass. The inline-parser regressions failed before implementation.
+All **70 distinct production-browser cases** pass across `chat-commands`, `arena-tiles` and
+`agent-session-archive`, including held saves with changed mode/evidence, navigation, attached
+machine commands during runs, and one permission save through uncertain delivery/reload/retry.
+The final combined run passed 69/70; the older late-pre-archive assertion missed the new
+`?view=recent` request. Its corrected matcher and both clipboard-image cases pass in a targeted
+rerun. Clipboard fixtures now start with the Tiles preference instead of clicking before hydration.
+
+All six new command screenshots were inspected: conversation at 1280px and 390px in both themes,
+plus desktop Arena in both themes. Independent review passes after the punctuation, code-fence,
+send-context and popup fixes. Browser checks use fixture providers; real-provider decisions were
+not rerun. The running application has not been rebuilt or restarted; no changes have been staged
+or committed.

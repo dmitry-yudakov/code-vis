@@ -29,7 +29,7 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-20. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-21. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
@@ -89,6 +89,10 @@ Updated 2026-11-20. When a story ships, change the line that names it; each stor
   retries, Undo and navigation ownership. All 162 focused unit checks, 88 distinct production-browser
   cases, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
   review pass. Three unchanged-head focus failures are recorded in the story.
+  The November 21 follow-up supports the same commands in Arena quick reply and `/autoclose`
+  anywhere in a message, with caret completion, save-before-send, retained evidence and exact retries.
+  All 107 focused unit checks, 70 distinct production-browser cases, TypeScript, isolated build,
+  both-theme desktop/phone screenshot inspection and independent review pass.
   The running application has not been rebuilt or restarted.
 - **Shipped:** [Story 145](stories/STORY-20261117-attach-project-repository.md) — projects created
   without repositories can attach and manage them from Files or Changes, with persistent bindings,

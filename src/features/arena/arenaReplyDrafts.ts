@@ -14,6 +14,7 @@ export interface ArenaReplyState {
   delivery?: { messageId: string; participantId: string; mode: AgentMode; modelSelection: ModelSelection; imageCount?: number };
   busy?: boolean;
   error?: string;
+  feedback?: string;
   sent?: boolean;
 }
 const EMPTY_REPLY: ArenaReplyState = { text: '' };

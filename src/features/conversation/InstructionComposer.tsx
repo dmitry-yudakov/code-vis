@@ -4,8 +4,6 @@ import TextField from '@mui/material/TextField';
 import Paper from '@mui/material/Paper';
 import ListItemButton from '@mui/material/ListItemButton';
 import Alert from '@mui/material/Alert';
-import List from '@mui/material/List';
-import ListItemText from '@mui/material/ListItemText';
 import { AttachmentChip } from './AttachmentChip';
 import { useRepositoryFiles } from '@/features/repository/RepositoryFilesProvider';
 
@@ -24,7 +22,8 @@ import Button from '@mui/material/Button';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import type { TextFile } from '@/shared/textFiles';
 import { carriesFiles, pastedImageFiles, pendingImageDetail, type PendingImage } from './imageAttachments';
-import { chatCommand, commandSuggestions } from './chatCommands';
+import { chatCommand } from './chatCommands';
+import { useChatCommandInput } from './ChatCommandInput';
 
 const ICON_PATHS = {
   plus: 'M12 5v14M5 12h14',
@@ -295,7 +294,7 @@ export interface PendingReportChip {
 
 export function InstructionComposer({
   agentControl, settingsControl, draft, running, cancelReady = true, sendBlocked, autoFocus, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
-  modelChoices, modelSelection, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel, onArchiveAllowedChange,
+  modelChoices, modelSelection, sendContext, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel, onArchiveAllowedChange,
   onNewChat, onArchive, newChatDisabledReason, archiveDisabledReason,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
@@ -334,6 +333,8 @@ export function InstructionComposer({
   modelChoices?: ModelChoices;
   /** Already reduced to what the provider lists. */
   modelSelection: ModelSelection;
+  /** Addressed participant and canvas marks owned outside the composer. */
+  sendContext?: string;
   onChange(value: string): void;
   onModeChange(mode: AgentMode): void;
   onModelSelectionChange(selection: ModelSelection): void;
@@ -361,37 +362,33 @@ export function InstructionComposer({
   const value = useSyncExternalStore(draft.subscribe, draft.getSnapshot, draft.getSnapshot);
   const repositoryFiles = useRepositoryFiles();
   const activeFile = repositoryFiles?.activeFile;
-  const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [dropTarget, setDropTarget] = useState(false);
   const commandBusy = useRef(false);
   const [commandPending, setCommandPending] = useState(false);
   const [commandFeedback, setCommandFeedback] = useState<{ severity: 'success' | 'error'; text: string }>();
-  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
-  const [inputFocused, setInputFocused] = useState(false);
-  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
-  const listId = useId();
   const localCommands = Boolean(onArchiveAllowedChange);
-  const suggestions = localCommands && inputFocused && !suggestionsDismissed && !commandPending ? commandSuggestions(value) : [];
-  const selectedIndex = Math.min(selectedSuggestion, Math.max(0, suggestions.length - 1));
+  const commandInput = useChatCommandInput(value, text => { setCommandFeedback(undefined); onChange(text); }, localCommands && !commandPending);
+  const { ref } = commandInput;
   const localCommand = localCommands ? chatCommand(value) : undefined;
-  const completeCommand = (text: string) => {
-    onChange(text);
-    setSuggestionsDismissed(true);
-    setCommandFeedback(undefined);
-    ref.current?.focus();
-  };
+  const context = [sendContext, mode, modelSelection.model, modelSelection.effort,
+    attached.map(canvasTargetId).join(','), reports.map(report => report.id).join(','),
+    images.length ? images : undefined, files.length ? files : undefined, JSON.stringify(activeFile)];
+  const latestSend = useRef({ draft, context, send: onSend, running, blocked: sendBlocked, mounted: true });
+  latestSend.current = { draft, context, send: onSend, running, blocked: sendBlocked, mounted: true };
+  useEffect(() => () => { latestSend.current.mounted = false; }, []);
   // A drawing, a report, or an image is an instruction in itself, so such a turn does not need typed text.
   const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0 || images.length > 0 || files.length > 0;
   const submit = async () => {
     if (commandBusy.current) return;
     const submitted = draft.getSnapshot();
+    const submittedContext = latestSend.current.context;
     const command = localCommands ? chatCommand(submitted) : undefined;
     if (!command) {
       if (canSend && !running && !sendBlocked) onSend();
       return;
     }
-    setSuggestionsDismissed(true);
+    commandInput.dismiss();
     if (command.kind === 'invalid') {
       setCommandFeedback({ severity: 'error', text: command.usage });
       return;
@@ -411,7 +408,14 @@ export function InstructionComposer({
         const succeeded = await (command.kind === 'new' ? onNewChat?.() : onArchive?.());
         if (!succeeded) throw new Error(command.kind === 'new' ? 'Could not create the session. Try again.' : 'Could not archive the session. Try again.');
       }
-      if (!edited && draft.getSnapshot() === submitted) onChange('');
+      if (!edited && draft.getSnapshot() === submitted) {
+        const remaining = command.kind === 'autoclose' ? command.remainingText || '' : '';
+        onChange(remaining);
+        // Navigation, a new run or changed send choices leave the remaining message as a draft.
+        const owner = latestSend.current;
+        if (remaining && owner.mounted && owner.draft === draft && !owner.running && !owner.blocked
+          && owner.context.every((item, index) => item === submittedContext[index])) owner.send();
+      }
       if (command.kind === 'autoclose') setCommandFeedback({ severity: 'success', text: `Auto-close ${command.allowed ? 'enabled' : 'disabled'}.` });
     } catch (cause) {
       setCommandFeedback({ severity: 'error', text: cause instanceof Error ? cause.message : 'Could not run the command. Try again.' });
@@ -452,9 +456,6 @@ export function InstructionComposer({
   }, [autoFocus]);
   useEffect(() => { if (focusRequest && ref.current) { ref.current.focus(); onFocusRequestHandled?.(); } }, [focusRequest, onFocusRequestHandled]);
   useEffect(() => {
-    if (suggestions.length) document.getElementById(`${listId}-${selectedIndex}`)?.scrollIntoView({ block: 'nearest' });
-  }, [listId, selectedIndex, suggestions.length]);
-  useEffect(() => {
     const field = ref.current;
     if (!field) return;
     const fit = () => {
@@ -476,15 +477,7 @@ export function InstructionComposer({
     <div className="composer-layout">
     {agentControl && <div className="composer-agent">{agentControl}</div>}
     <Paper sx={{ p: 1.5, borderRadius: '14px' }} className={`instruction-composer${dropTarget ? ' drop-target' : ''}`} onDragOver={dragOver} onDragLeave={dragLeave} onDrop={drop}>
-      {suggestions.length > 0 && <Paper variant="outlined" sx={{ position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 2, maxHeight: 'min(320px, 45dvh)', overflow: 'auto' }}>
-        <List id={listId} role="listbox" aria-label="Chat commands" dense disablePadding>
-          {suggestions.map((suggestion, index) => <ListItemButton key={suggestion.text} id={`${listId}-${index}`}
-            component="li" role="option" aria-selected={index === selectedIndex} selected={index === selectedIndex} tabIndex={-1}
-            onMouseDown={event => event.preventDefault()} onClick={() => completeCommand(suggestion.text)}>
-            <ListItemText primary={suggestion.text} secondary={suggestion.description} />
-          </ListItemButton>)}
-        </List>
-      </Paper>}
+      {commandInput.list}
       {repositoryFiles?.contextCandidate && <div className="attachment-chips" aria-label="File context">
         {activeFile ? <AttachmentChip removeLabel="Remove active file from context" onRemove={() => repositoryFiles.setContextIncluded(false)}>
           <span title="Only the file reference is sent. The agent can read it if relevant.">
@@ -518,40 +511,21 @@ export function InstructionComposer({
         value={value}
         rows={1}
         slotProps={{ htmlInput: { maxLength: 8_000, 'aria-label': 'Instruction',
-          'aria-autocomplete': localCommands ? 'list' : undefined,
-          'aria-expanded': localCommands ? suggestions.length > 0 : undefined,
-          'aria-controls': suggestions.length ? listId : undefined,
-          'aria-activedescendant': suggestions.length ? `${listId}-${selectedIndex}` : undefined,
+          ...commandInput.aria,
         }, input: { inputComponent: 'textarea', disableUnderline: true } }}
         placeholder={attached.some((canvas) => canvas.kind === 'sketch')
           ? 'Describe what you drew, or just send the sketch…'
           : reports.length ? 'Explain what the report shows, or just send it…'
           : images.length ? 'Say what to do with the image, or just send it…'
           : attached.length ? 'Ask about or revise the attached diagram…' : 'Ask anything about this project…'}
-        onChange={(event) => {
-          setCommandFeedback(undefined);
-          setSuggestionsDismissed(false);
-          setSelectedSuggestion(0);
-          onChange(event.target.value);
-        }}
-        onFocus={() => setInputFocused(true)}
-        onBlur={() => setInputFocused(false)}
+        onChange={commandInput.onChange}
+        onFocus={commandInput.onFocus}
+        onBlur={commandInput.onBlur}
+        onSelect={commandInput.onSelect}
         onPaste={paste}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) return;
-          if (suggestions.length && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-            if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setSuggestionsDismissed(true); return; }
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              event.preventDefault();
-              setSelectedSuggestion((selectedIndex + (event.key === 'ArrowDown' ? 1 : -1) + suggestions.length) % suggestions.length);
-              return;
-            }
-            if (!event.repeat && (event.key === 'Tab' || (event.key === 'Enter' && value.trim().toLowerCase() !== suggestions[selectedIndex].text))) {
-              event.preventDefault();
-              completeCommand(suggestions[selectedIndex].text);
-              return;
-            }
-          }
+          if (commandInput.onKeyDown(event)) return;
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !event.repeat) {
             event.preventDefault();
             void submit();

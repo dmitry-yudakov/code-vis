@@ -12,6 +12,160 @@ async function sessions(request: APIRequestContext, count = 2) {
 }
 const cardFor = (page: Page, id: string) => page.locator('.arena-card').filter({ has: page.locator(`.arena-card-open[href*="${id}"]`) });
 
+async function openTiles(page: Page) {
+  await page.addInitScript(() => localStorage.setItem('code-ai:device:arena-layout', 'tiles'));
+  await page.goto('/arena');
+  await expect(page.getByRole('button', { name: 'Tiles', exact: true })).toHaveAttribute('aria-pressed', 'true');
+}
+
+for (const theme of ['light', 'dark']) test(`quick reply commands complete locally and retain images on save failure: ${theme}`, async ({ page, request }, testInfo) => {
+  await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+  const { created: [session] } = await sessions(request, 1);
+  await openTiles(page);
+  const card = cardFor(page, session.id), input = card.getByRole('textbox');
+  let posts = 0;
+  page.on('request', request => { if (request.url().endsWith('/api/agent/message')) posts++; });
+  await input.fill('/');
+  const suggestions = page.getByRole('listbox', { name: 'Chat commands', exact: true });
+  await expect(suggestions.getByRole('option')).toHaveCount(4);
+  await expect(input).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('quick-reply-commands.png'), animations: 'disabled' });
+  await input.press('Escape');
+  await expect(suggestions).toHaveCount(0);
+  await pasteImage(input);
+  await input.fill('/auto');
+  await input.press('Tab');
+  await expect(input).toHaveValue('/autoclose');
+  await page.route(`**/api/sessions/${session.id}`, route => route.request().method() === 'PATCH'
+    ? route.fulfill({ status: 503, json: { error: 'Permission unavailable.' } }) : route.continue());
+  await input.press('Enter');
+  await expect(card.getByRole('alert')).toContainText('Permission unavailable.');
+  await expect(input).toHaveValue('/autoclose');
+  await expect(card.locator('.attachment-chip.image')).toHaveCount(1);
+  await page.unroute(`**/api/sessions/${session.id}`);
+  await input.press('Enter');
+  await expect(input).toBeEmpty();
+  await expect(card).toContainText('Auto-close enabled.');
+  await expect(card.locator('.attachment-chip.image')).toHaveCount(1);
+  expect(posts).toBe(0);
+  expect((await (await request.get(`/api/sessions/${session.id}`)).json()).session.allowAgentArchive).toBe(true);
+  await input.fill('Do X /autoclose o');
+  await expect(suggestions.getByRole('option')).toHaveCount(2);
+  await input.press('ArrowDown');
+  await input.press('Enter');
+  await expect(input).toHaveValue('Do X /autoclose off');
+  await input.press('Enter');
+  await expect(input).toBeEmpty();
+  await expect(card.locator('.arena-tile-preview')).toContainText('First turn complete.');
+  const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
+  expect(saved.allowAgentArchive).toBe(false);
+  expect(saved.messages[0]).toMatchObject({ text: 'Do X', imageAttachments: [{ mediaType: 'image/png' }] });
+  expect(posts).toBe(1);
+  await expect(page).toHaveURL(/\/arena$/);
+});
+
+test('quick reply new, archive and close reuse session actions without provider messages', async ({ page, request }) => {
+  const { created } = await sessions(request, 3);
+  await openTiles(page);
+  let posts = 0;
+  page.on('request', request => { if (request.url().endsWith('/api/agent/message')) posts++; });
+  for (const [index, command] of ['/archive', '/close'].entries()) {
+    const card = cardFor(page, created[index].id);
+    await card.getByRole('textbox').fill(command);
+    await card.getByRole('textbox').press('Enter');
+    await expect(card).toHaveCount(0);
+    expect((await request.get(`/api/sessions/${created[index].id}`)).status()).toBe(404);
+    await expect(page).toHaveURL(/\/arena$/);
+  }
+  const source = created[2], input = cardFor(page, source.id).getByRole('textbox');
+  await input.fill('/new');
+  await input.press('Enter');
+  await expect(page).toHaveURL(/\?session=/);
+  const nextId = new URL(page.url()).searchParams.get('session')!;
+  const next = (await (await request.get(`/api/sessions/${nextId}`)).json()).session as PublicSession;
+  expect(next.id).not.toBe(source.id);
+  expect(next.projectId).toBe(source.projectId);
+  expect(next.repositories).toEqual(source.repositories);
+  expect(next.messages).toHaveLength(0);
+  expect((await request.get(`/api/sessions/${source.id}`)).ok()).toBe(true);
+  expect(posts).toBe(0);
+});
+
+test('inline quick reply retries its exact cleaned payload after uncertain delivery and reload', async ({ page, request }) => {
+  const { created: [session] } = await sessions(request, 1);
+  let readable = true, patches = 0, accepted = false;
+  const messages: unknown[] = [];
+  await page.route(`**/api/sessions/${session.id}`, route => {
+    if (route.request().method() === 'PATCH') {
+      patches++;
+      session.allowAgentArchive = route.request().postDataJSON().allowAgentArchive;
+      return route.fulfill({ json: { session } });
+    }
+    return route.fulfill({ status: readable ? 200 : 503, json: readable ? { session } : {} });
+  });
+  await page.route('**/api/agent/message', route => {
+    messages.push(route.request().postDataJSON());
+    if (!accepted) { readable = false; return route.abort(); }
+    return route.fulfill({ headers: { 'X-CodeAI-Run-Id': crypto.randomUUID() }, body: '' });
+  });
+  await openTiles(page);
+  const card = cardFor(page, session.id), input = card.getByRole('textbox');
+  await input.fill('Do X /autoclose');
+  await input.press('Enter');
+  await expect(card.getByRole('button', { name: 'Check / retry', exact: true })).toBeVisible();
+  await expect(input).toHaveValue('Do X');
+  await page.reload();
+  await expect(input).toHaveValue('Do X');
+  readable = true; accepted = true;
+  await card.getByRole('button', { name: 'Check / retry', exact: true }).click();
+  await expect(input).toBeEmpty();
+  expect(patches).toBe(1);
+  expect(messages).toHaveLength(2);
+  expect(messages[0]).toEqual(messages[1]);
+  expect(messages[0]).toMatchObject({ text: 'Do X' });
+});
+
+test('quick reply autoclose targets its machine during a run without requiring a provider', async ({ page, request }) => {
+  const { created: [session] } = await sessions(request, 1);
+  const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
+  const local = snapshot.machines.find(machine => machine.machine.kind === 'local')!;
+  local.sessions = local.sessions.filter(item => item.id === session.id);
+  const remote = structuredClone(local);
+  remote.machine = { ...remote.machine, id: crypto.randomUUID(), kind: 'remote', label: 'Command executor' };
+  remote.providers.claude.available = false;
+  remote.runs.active = [{ runId: crypto.randomUUID(), sessionId: session.id, participantId: session.primaryAgentId,
+    state: 'running', enqueuedAt: Date.now(), pendingPermissionCount: 0, pendingPermissions: [] }];
+  snapshot.machines.push(remote);
+  await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
+  const patches: unknown[] = [];
+  let posts = 0;
+  page.on('request', request => { if (request.url().endsWith('/agent/message')) posts++; });
+  await page.route(`**/api/machines/${remote.machine.id}/sessions/${session.id}`, route => {
+    if (route.request().method() === 'PATCH') {
+      patches.push(route.request().postDataJSON());
+      return route.fulfill({ json: { session: { ...session, allowAgentArchive: true } } });
+    }
+    return route.fulfill({ json: { session } });
+  });
+  await openTiles(page);
+  const home = page.getByRole('region', { name: local.machine.label, exact: true }).getByRole('textbox');
+  const card = page.getByRole('region', { name: 'Command executor', exact: true }).locator('.arena-card');
+  await home.fill('Home draft');
+  const input = card.getByRole('textbox');
+  await input.fill('/autoclose');
+  await expect(card.getByRole('button', { name: 'Run command', exact: true })).toBeEnabled();
+  await input.press('Enter');
+  await expect(input).toBeEmpty();
+  await expect(card).toContainText('Auto-close enabled.');
+  expect(patches).toEqual([{ allowAgentArchive: true, expectedAllowAgentArchive: false }]);
+  await input.fill('Do X /autoclose');
+  await input.press('Enter');
+  await expect(input).toHaveValue('Do X');
+  await expect(card.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await expect(home).toHaveValue('Home draft');
+  expect(posts).toBe(0);
+});
+
 async function pasteImage(input: Locator, options: { count?: number; text?: boolean; corrupt?: boolean } = {}) {
   return input.evaluate(async (element, options) => {
     const canvas = document.createElement('canvas'); canvas.width = 160; canvas.height = 100;
@@ -31,8 +185,7 @@ for (const theme of ['light', 'dark']) test(`tile clipboard images can be remove
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), theme);
   const { created } = await sessions(request);
-  await page.goto('/arena');
-  await page.getByRole('button', { name: 'Tiles', exact: true }).click();
+  await openTiles(page);
   const first = cardFor(page, created[0].id), second = cardFor(page, created[1].id);
   const input = first.getByRole('textbox');
   await expect(first.locator('.arena-tile-reply')).not.toContainText('Claude · Ask');

@@ -2351,7 +2351,21 @@ export function AppShell({ children }: { children: ReactNode }) {
   ]);
   const arenaInbox = buildMultiMachineInbox(arena.machines, arena.deviceState);
   const arenaUnread = unreadArenaAttention(arenaInbox);
-  const arenaReplies = useArenaReplies(localMachineId, lifecycle.busy ? 'CodeAI is restarting. Your draft is kept.' : undefined);
+  const arenaReplies = useArenaReplies(localMachineId, lifecycle.busy ? 'CodeAI is restarting. Your draft is kept.' : undefined, {
+    archive: (targetMachineId, target) => archiveArenaSession(targetMachineId, target),
+    newChat: async (targetMachineId, target, options) => {
+      const agent = findAgentParticipant(target.participants, target.primaryAgentId);
+      if (!agent) return false;
+      const created = await createSession(agent.provider, {
+        fromArena: true, machineId: targetMachineId, projectId: target.projectId,
+        sourceSessionId: target.id, execution: target.execution || 'local', role: agent.role,
+        mode: options.mode, modelSelection: options.modelSelection,
+      });
+      if (created) workspace.closeInProject(target.projectId, target.id, targetMachineId === localMachineId ? undefined : targetMachineId);
+      return created;
+    },
+    saved: (targetMachineId, saved) => { applyServerSnapshot(saved, targetMachineId); void arena.refresh(); },
+  });
   const replyOptionsFor = (machine: ArenaMachineSnapshot, target: ArenaSessionSummary, recipientId = target.primaryAgentId): ArenaReplyOptions => {
     const agent = target.agents.find(agent => agent.id === recipientId);
     const providers = machine.machine.kind === 'local'

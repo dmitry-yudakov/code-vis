@@ -100,10 +100,123 @@ test('completion supports click, Escape, Shift+Enter and ordinary text', async (
   await input.press('Shift+Enter');
   await expect(input).toHaveValue('/archive\n');
   await expect(suggestions).toHaveCount(0);
-  for (const text of ['/model', '/src/app', 'Explain /autoclose']) {
+  for (const text of ['/model', '/src/app', 'Explain `/autoclose`']) {
     await input.fill(text);
     await expect(suggestions).toHaveCount(0);
   }
+  await input.press('Enter');
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+});
+
+for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
+  test(`inline autoclose completes at the caret and sends the remaining draft: ${theme} ${width}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const { sessions: [session], input, conversation } = await open(page, request);
+    const composer = conversation.locator('.instruction-composer');
+    await composer.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this evidence') });
+    await input.fill('Do X /auto then report back');
+    await input.press('Home');
+    for (let index = 0; index < 10; index++) await input.press('ArrowRight');
+    const suggestions = page.getByRole('listbox', { name: 'Chat commands', exact: true });
+    await expect(suggestions.getByRole('option')).toHaveCount(1);
+    await page.screenshot({ path: testInfo.outputPath('inline-command.png'), animations: 'disabled' });
+    await input.press('Tab');
+    await expect(input).toHaveValue('Do X /autoclose then report back');
+    const order: string[] = [];
+    page.on('request', request => {
+      if (request.method() === 'PATCH' && request.url().endsWith(`/sessions/${session.id}`)) order.push('permission');
+      if (request.url().endsWith('/api/agent/message')) order.push('message');
+    });
+    await input.press('Enter');
+    await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+    expect(order).toEqual(['permission', 'message']);
+    const current = await saved(request, session.id);
+    expect(current.allowAgentArchive).toBe(true);
+    expect(current.messages[0]).toMatchObject({ text: 'Do X then report back', fileAttachments: [{ name: 'notes.txt', text: 'Keep this evidence' }] });
+    await expect(input).toBeEmpty();
+  });
+}
+
+test('inline save failure preserves the full message and evidence for retry', async ({ page, request }) => {
+  const { sessions: [session], input, conversation } = await open(page, request);
+  const composer = conversation.locator('.instruction-composer');
+  await composer.locator('input[type=file]').setInputFiles({ name: 'retry.txt', mimeType: 'text/plain', buffer: Buffer.from('Retain me') });
+  let posts = 0;
+  page.on('request', request => { if (request.url().endsWith('/api/agent/message')) posts++; });
+  await page.route(`**/api/sessions/${session.id}`, route => route.request().method() === 'PATCH'
+    ? route.fulfill({ status: 503, json: { error: 'Permission unavailable.' } }) : route.continue());
+  await input.fill('Do X /autoclose');
+  await input.press('Enter');
+  await expect(composer.getByRole('alert')).toHaveText('Permission unavailable.');
+  await expect(input).toHaveValue('Do X /autoclose');
+  await expect(composer.getByRole('button', { name: 'Remove file retry.txt', exact: true })).toBeVisible();
+  expect(posts).toBe(0);
+  await page.unroute(`**/api/sessions/${session.id}`);
+  await input.press('Enter');
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+  expect(posts).toBe(1);
+  expect((await saved(request, session.id)).messages[0]).toMatchObject({ text: 'Do X' });
+});
+
+test('inline autoclose during a live turn keeps the remaining message for later', async ({ page, request }) => {
+  const { input, conversation, sessions: [session] } = await open(page, request);
+  await input.fill('Wait for reload cancellation.');
+  await input.press('Enter');
+  await expect(conversation.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await input.fill('Then do X /autoclose');
+  await input.press('Enter');
+  await expect(input).toHaveValue('Then do X');
+  expect((await saved(request, session.id)).allowAgentArchive).toBe(true);
+  expect((await saved(request, session.id)).messages.filter(message => message.role === 'user')).toHaveLength(1);
+  await conversation.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+
+test('navigating during an inline save never sends through another conversation', async ({ page, request }) => {
+  const { input, sessions } = await open(page, request, 1);
+  let release!: () => void;
+  const resume = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/sessions/${sessions[0].id}`, async route => {
+    if (route.request().method() === 'PATCH') await resume;
+    await route.continue();
+  });
+  await input.fill('Keep this instruction /autoclose');
+  const saving = page.waitForRequest(request => request.method() === 'PATCH' && request.url().endsWith(`/sessions/${sessions[0].id}`));
+  await input.press('Enter');
+  await saving;
+  await sessionTab(page, sessions[1].id).click();
+  await input.fill('Other session draft');
+  release();
+  await expect.poll(async () => (await saved(request, sessions[0].id)).allowAgentArchive).toBe(true);
+  await expect(input).toHaveValue('Other session draft');
+  await sessionTab(page, sessions[0].id).click();
+  await expect(input).toHaveValue('Keep this instruction');
+  for (const session of sessions) expect((await saved(request, session.id)).messages).toHaveLength(0);
+});
+
+for (const change of ['mode', 'evidence']) test(`changing ${change} during an inline save retains the message for review`, async ({ page, request }) => {
+  const { input, conversation, sessions: [session] } = await open(page, request);
+  let release!: () => void;
+  const resume = new Promise<void>(resolve => { release = resolve; });
+  await page.route(`**/api/sessions/${session.id}`, async route => {
+    if (route.request().method() === 'PATCH') await resume;
+    await route.continue();
+  });
+  await input.fill('Review this instruction /autoclose');
+  const saving = page.waitForRequest(request => request.method() === 'PATCH' && request.url().endsWith(`/sessions/${session.id}`));
+  await input.press('Enter');
+  await saving;
+  if (change === 'mode') {
+    await conversation.getByRole('button', { name: /^Mode:/ }).click();
+    await page.getByRole('radio', { name: 'Plan', exact: true }).click();
+  } else {
+    await conversation.locator('input[type=file]').setInputFiles({ name: 'later.txt', mimeType: 'text/plain', buffer: Buffer.from('Added while saving') });
+  }
+  release();
+  await expect(input).toHaveValue('Review this instruction');
+  await expect(conversation.locator('.instruction-composer').getByRole('status')).toHaveText('Auto-close enabled.');
+  expect((await saved(request, session.id)).messages).toHaveLength(0);
+  if (change === 'evidence') await expect(conversation.getByRole('button', { name: 'Remove file later.txt', exact: true })).toBeVisible();
   await input.press('Enter');
   await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
 });

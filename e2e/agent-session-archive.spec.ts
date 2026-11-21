@@ -166,18 +166,22 @@ test('failed auto-close commands keep the draft for keyboard retry', async ({ pa
   expect((await saved(request, session.id)).messages).toHaveLength(0);
 });
 
-test('invalid auto-close arguments show usage while ordinary mentions still reach the agent', async ({ page, request }) => {
+test('inline auto-close sends the remaining text while code examples stay literal', async ({ page, request }) => {
   const { session, conversation } = await open(page, request, false);
   const input = conversation.getByRole('textbox', { name: 'Instruction', exact: true });
-  for (const text of ['/autoclose later', '/autoclose\nAlso do some work']) {
+  for (const [index, text] of ['/autoclose later', '/autoclose\nAlso do some work'].entries()) {
     await input.fill(text);
     await input.press('Enter');
-    await expect(conversation.getByRole('alert')).toHaveText('Use /autoclose, /autoclose on or /autoclose off.');
-    await expect(input).toHaveValue(text);
-    expect((await saved(request, session.id)).messages).toHaveLength(0);
+    await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(index + 1);
+    await expect(input).toBeEmpty();
+    expect((await saved(request, session.id)).allowAgentArchive).toBe(true);
+    expect((await saved(request, session.id)).messages.filter(message => message.role === 'user').at(-1)?.text).toBe(text.replace('/autoclose', '').trim());
   }
-  await send(page, 'Explain /autoclose without enabling it.');
-  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(1);
+  await input.fill('/autoclose off');
+  await input.press('Enter');
+  await expect(input).toBeEmpty();
+  await send(page, 'Explain `/autoclose` without enabling it.');
+  await expect(conversation.locator('.chat-message.assistant.complete')).toHaveCount(3);
   expect((await saved(request, session.id)).allowAgentArchive).not.toBe(true);
 });
 
@@ -358,7 +362,7 @@ test('a late pre-archive response cannot reopen the removed conversation', async
   let released = false;
   let release!: () => void;
   const resume = new Promise<void>(resolve => { release = resolve; });
-  await page.route(`**/api/sessions/${session.id}`, async route => {
+  await page.route(new RegExp(`/api/sessions/${session.id}(?:\\?.*)?$`), async route => {
     if (held || route.request().method() !== 'GET') return route.continue();
     const response = await route.fetch();
     const data = await response.json() as { session?: PublicSession };

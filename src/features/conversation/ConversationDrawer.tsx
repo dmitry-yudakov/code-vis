@@ -400,6 +400,7 @@ export function ConversationDrawer({
           unsupportedModes={unsupportedModes}
           modelChoices={modelChoices}
           modelSelection={modelSelection}
+          sendContext={JSON.stringify([activeAgent?.id, session?.annotations])}
           theme={theme}
           recentCanvases={canvases}
           continuation={{ unavailable: continuationUnavailable, busy: continuing, onContinue }}
