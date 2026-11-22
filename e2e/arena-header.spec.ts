@@ -40,12 +40,19 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 360]) {
     expect(await navbar.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     expect(await arena.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('compact-arena.png'), animations: 'disabled' });
+    await page.keyboard.press('Control+k');
+    const projects = page.getByRole('listbox', { name: 'Projects', exact: true });
+    await expect(projects.getByRole('option', { name: project.name, exact: true })).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath('arena-project-picker.png'), animations: 'disabled' });
+    await page.keyboard.press('Escape');
     for (const section of ['Inbox', 'Archived']) {
       await arena.getByRole('tab', { name: section, exact: true }).click();
       const newProject = navbar.getByRole('button', { name: 'New project', exact: true });
       await newProject.click();
       const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
       await expect(dialog.getByRole('textbox', { name: 'Project name', exact: true })).toBeFocused();
+      await page.keyboard.press('Control+k');
+      await expect(projects).toBeHidden();
       await page.keyboard.press('Escape');
       await expect(dialog).not.toBeVisible();
       await expect(newProject).toBeFocused();
@@ -56,3 +63,25 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 360]) {
     }
   });
 }
+
+test('Arena Projects opens the selected executor workspace', async ({ page, request }) => {
+  const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
+  const local = snapshot.machines.find(entry => entry.machine.kind === 'local')!;
+  const { project } = await (await request.post('/api/projects', { data: { name: 'Executor project fixture' } })).json();
+  const remoteId = crypto.randomUUID();
+  const remoteProject = { ...project, id: crypto.randomUUID(), name: 'Executor project' };
+  const remote = { ...local, machine: { ...local.machine, id: remoteId, kind: 'remote' as const, label: 'Online executor' },
+    projects: [remoteProject], sessions: [], archivedSessions: [] };
+  snapshot.machines.push(remote, { ...remote, machine: { ...remote.machine, id: crypto.randomUUID(), state: 'offline' as const, label: 'Offline executor' } });
+  await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
+  await page.route(`**/api/machines/${remoteId}/projects`, route => route.fulfill({ json: { projects: [remoteProject] } }));
+  await page.route(`**/api/machines/${remoteId}/sessions?*`, route => route.fulfill({ json: { sessions: [] } }));
+  await page.goto('/arena');
+  await expect(page.getByRole('region', { name: 'Online executor', exact: true })).toBeVisible();
+  await page.keyboard.press('Control+k');
+  const projects = page.getByRole('listbox', { name: 'Projects', exact: true });
+  await expect(projects.getByRole('option', { name: /Offline executor/ })).toHaveCount(0);
+  await projects.getByRole('option', { name: /Executor project Online executor/ }).press('Enter');
+  await expect(page).toHaveURL(`/?project=${remoteProject.id}&machine=${remoteId}`);
+  await expect(page.getByRole('button', { name: `Project: ${remoteProject.name}`, exact: true })).toBeVisible();
+});

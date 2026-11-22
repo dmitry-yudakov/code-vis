@@ -34,21 +34,62 @@ for (const modifier of ['Control', 'Meta']) {
     await expect(input).toHaveValue('Keep my Arena jump draft');
     await expect(page.getByRole('link', { name: 'Arena', exact: true })).toHaveAttribute('aria-keyshortcuts', 'Control+J Meta+J');
   });
+
+  test(`${modifier}+K opens Projects from a session and from Arena`, async ({ page, request }) => {
+    const { project } = await (await request.post('/api/projects', { data: { name: `Shortcut destination ${modifier}` } })).json();
+    await openWorkspace(page, request);
+    const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
+    const projects = page.getByRole('listbox', { name: 'Projects', exact: true });
+    const destination = projects.getByRole('option', { name: new RegExp(project.name) });
+    await input.fill('Keep my project jump draft');
+    const sessionUrl = page.url();
+    await expect(page.getByRole('button', { name: /^Project: Shortcuts/ })).toHaveAttribute('aria-keyshortcuts', 'Control+K Meta+K');
+    await input.press(`${modifier}+k`);
+    const currentProject = projects.getByRole('option', { selected: true });
+    await expect(currentProject).toBeFocused({ timeout: 5000 });
+    await page.keyboard.press('ArrowDown');
+    await expect(projects.locator(':focus')).toHaveRole('option');
+    await expect(currentProject).not.toBeFocused();
+    await page.keyboard.press(`${modifier}+k`);
+    await expect(projects).toBeVisible();
+    await destination.click();
+    await expect(page).toHaveURL(`/?project=${project.id}`);
+    await page.goBack();
+    await expect(page).toHaveURL(sessionUrl);
+    await expect(input).toHaveValue('Keep my project jump draft');
+
+    await page.getByRole('link', { name: 'Arena', exact: true }).click();
+    const arenaPicker = page.getByRole('button', { name: 'Projects', exact: true });
+    await expect(arenaPicker).toHaveAttribute('aria-keyshortcuts', 'Control+K Meta+K');
+    await page.keyboard.press(`${modifier}+k`);
+    await expect(destination).toBeVisible();
+    await expect(projects.locator(':focus')).toHaveRole('option');
+    await page.keyboard.press('Escape');
+    await expect(projects).toBeHidden();
+    await expect(arenaPicker).toBeFocused();
+    await page.keyboard.press(`${modifier}+k`);
+    await destination.press('Enter');
+    await expect(page).toHaveURL(`/?project=${project.id}`);
+  });
 }
 
-test('the Arena shortcut leaves modified keys, composition, open pickers and project views alone', async ({ page, request }) => {
+test('navigation shortcuts respect modified keys, composition and open pickers', async ({ page, request }) => {
   await openWorkspace(page, request);
   const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
   const sessionUrl = page.url();
-  for (const extra of [{ isComposing: true }, { altKey: true }, { shiftKey: true }, { metaKey: true }]) {
-    expect(await input.evaluate((node, extra) => node.dispatchEvent(new KeyboardEvent('keydown', {
-      key: 'j', ctrlKey: true, ...extra, bubbles: true, cancelable: true,
-    })), extra)).toBe(true);
+  for (const key of ['j', 'k']) {
+    for (const extra of [{ isComposing: true }, { altKey: true }, { shiftKey: true }, { metaKey: true }]) {
+      expect(await input.evaluate((node, args) => node.dispatchEvent(new KeyboardEvent('keydown', {
+        ctrlKey: true, ...args, bubbles: true, cancelable: true,
+      })), { key, ...extra })).toBe(true);
+    }
   }
   await input.press('Control+p');
   await expect(search(page)).toBeFocused();
   await search(page).press('Meta+j');
+  await search(page).press('Control+k');
   await expect(search(page)).toBeFocused();
+  await expect(page.getByRole('listbox', { name: 'Projects', exact: true })).toBeHidden();
   await expect(page).toHaveURL(sessionUrl);
   await openWorkspace(page, request, false);
   const link = page.getByRole('link', { name: 'Arena', exact: true });
@@ -145,6 +186,7 @@ test('project workspaces search all bound repositories and reopen existing tabs'
   await expect(source(page)).toContainText('beta');
   await page.keyboard.press('Control+p');
   await search(page).fill('pypj');
+  await expect(picker(page).getByRole('option')).toHaveCount(1);
   await page.keyboard.press('Enter');
   await expect(page.getByRole('tablist', { name: 'Open files' }).getByRole('tab')).toHaveCount(1);
   await page.keyboard.press('Control+p');

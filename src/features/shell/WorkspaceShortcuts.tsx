@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { QuickFilePicker } from '@/features/repository/QuickFilePicker';
 import { useRepositoryFiles } from '@/features/repository/RepositoryFilesProvider';
+import { hasVisibleKeyboardOverlay } from './keyboardOverlays';
 import type { Pane } from './panelLayout';
 
 const paneSelectors: Record<Pane, string> = {
@@ -32,8 +33,7 @@ export function WorkspaceShortcuts({ shellRef, layout, arenaLink }: {
       const maximize = event.key === 'Escape' && event.shiftKey && !event.ctrlKey && !event.metaKey;
       if (!openFile && !maximize && !arenaTarget) return;
       if (openFile && pickerOpen) { event.preventDefault(); return; }
-      if ([...document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="menu"], .desktop-picker-paper')].some(element => element.getClientRects().length > 0
-        && getComputedStyle(element).visibility !== 'hidden')) return;
+      if (hasVisibleKeyboardOverlay()) return;
       if (arenaTarget) {
         event.preventDefault();
         if (!event.repeat) arenaTarget.click();

@@ -77,3 +77,24 @@ focused unit tests pass, as do the isolated production build, TypeScript check a
 review. In desktop Chrome on Linux, an OS-level Ctrl+J opened Arena from a draft and opened
 Downloads when pressed again on Arena. Playwright exercised Meta+J on Linux. Native macOS
 keyboard handling was not exercised.
+
+## November 22 follow-up — Open Projects
+
+- [x] Ctrl/Cmd+K opens the project picker in the flat workspace and on all Arena views. The
+  workspace picker keeps its existing project-switch behavior. Arena's **Projects** control lists
+  projects on online machines and opens the selected project workspace on its owning machine.
+- [x] The shortcut focuses the selected or first available option. Arrow keys move between
+  projects, Enter selects one, and Escape returns focus to the picker trigger.
+- [x] Open dialogs and other pickers, IME composition, and modified key combinations retain their
+  keyboard handling. Browser Back preserves the original conversation draft.
+
+The shared shortcut lives in `src/features/shell/DesktopPopover.tsx:58`. Arena's picker in
+`src/features/projects/ProjectPicker.tsx:83` passes the project and machine to the existing
+workspace navigation.
+
+Verification covers 87 focused unit checks, 61 browser cases across workspace shortcuts, Arena
+headers, project workspaces and project management, TypeScript, an isolated production build,
+light and dark Arena screenshots at desktop and phone widths, and independent review. Desktop
+Chrome on Linux received a native Ctrl+K in both entry points. Browser automation exercised Meta+K
+and an attached-executor fixture. Two existing 390px session overflow assertions in the logo suite
+also fail on the pre-change build.

@@ -44,7 +44,7 @@ import {
   canvasTargetId, exportSession, findCanvasTarget, getArtifacts, getSketches, hydrateSession,
   loadSelectedCheckoutId, saveSelectedCheckoutId, mergeTurnActivity, reconcileSessionTitles, mergeSessionPage,
 } from '@/features/conversation/sessionStore';
-import { ProjectPicker } from '@/features/projects/ProjectPicker';
+import { ArenaProjectPicker, ProjectPicker } from '@/features/projects/ProjectPicker';
 import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 import { ProjectLogoDialog } from '@/features/projects/ProjectLogoDialog';
 import { ProjectManagementDialog } from '@/features/projects/ProjectManagementDialog';
@@ -3022,12 +3022,17 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
         <nav className="header-breadcrumbs" aria-label="Current project and session">
           {!loading && <>
-            {arenaOpen ? <h1 className="arena-breadcrumb">Arena</h1> : (
+            {arenaOpen ? <>
+              <h1 className="arena-breadcrumb">Arena</h1>
+              <ArenaProjectPicker machines={arena.machines} shortcut={!immersiveActive}
+                onOpen={(projectId, machineId) => navigateWorkspace({ projectId, machineId })} />
+            </> : (
               <>
                 <ProjectPicker
                   projects={projects}
                   value={projectId}
                   apiBase={machineApiBase(machineId, localMachineId)}
+                  shortcut={!immersiveActive && !openingWorkspace && !navigationError}
                   onChange={switchProject}
                   onCreate={(name) => { void createProject(machineId, name, []).then(project => switchProject(project.id)).catch(error => notifyError(error, 'Could not create the project.')); }}
                   onManage={(project, action) => { if (machineId) setProjectManagementTarget({ machineId, project, action }); }}

@@ -8,15 +8,16 @@ import TextField from '@mui/material/TextField';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 import { useState } from 'react';
-import type { DurableProject } from '@/shared/types';
+import type { ArenaMachineSnapshot, DurableProject } from '@/shared/types';
 import { ProjectLogoButton } from './ProjectLogo';
 import type { ProjectAction } from './ProjectActions';
 
-export function ProjectPicker({ projects, value, disabled, apiBase, onChange, onCreate, onManage, onLogo }: {
+export function ProjectPicker({ projects, value, disabled, apiBase, shortcut, onChange, onCreate, onManage, onLogo }: {
   projects: DurableProject[];
   value?: string;
   disabled?: boolean;
   apiBase?: string;
+  shortcut?: boolean;
   onChange(value?: string): void;
   onCreate(name: string): void;
   onManage(project: DurableProject, action: ProjectAction): void;
@@ -30,7 +31,7 @@ export function ProjectPicker({ projects, value, disabled, apiBase, onChange, on
     <div className="project-picker-with-logo">
     {selected && <ProjectLogoButton project={selected} apiBase={apiBase} disabled={disabled} onClick={() => onLogo(selected)} />}
     <DesktopPopover className="project-search-picker" triggerClassName="project-search-trigger" disabled={disabled}
-      label={`Project: ${selected?.name || 'No project'}`} width={390} placement="bottom-start"
+      label={`Project: ${selected?.name || 'No project'}`} width={390} placement="bottom-start" shortcutKey={shortcut ? 'k' : undefined}
       summary={<><span>{selected?.name || 'No project'}</span><ShellIcon name="chevronDown" /></>}>
       {(close) =>
         <div className="project-search-popover">
@@ -77,4 +78,28 @@ export function ProjectPicker({ projects, value, disabled, apiBase, onChange, on
     </DesktopPopover>
     </div>
   );
+}
+
+export function ArenaProjectPicker({ machines, shortcut, onOpen }: {
+  machines: ArenaMachineSnapshot[];
+  shortcut: boolean;
+  onOpen(projectId: string, machineId: string): void;
+}) {
+  const projects = machines.flatMap(({ machine, projects }) => machine.state === 'online'
+    ? projects.map(project => ({ project, machine })) : []);
+  return <DesktopPopover className="project-search-picker" triggerClassName="project-search-trigger" label="Projects"
+    width={390} placement="bottom-start" shortcutKey={shortcut ? 'k' : undefined}
+    summary={<><span>Projects</span><ShellIcon name="chevronDown" /></>}>
+    {close => projects.length ? (
+      <div className="project-search-results" role="listbox" aria-label="Projects">
+        {projects.map(({ project, machine }) => (
+          <ListItemButton key={`${machine.id}:${project.id}`} component="button" type="button" role="option" aria-selected={false}
+            className="project-search-option" onClick={() => { close(); onOpen(project.id, machine.id); }}>
+            <span>{project.name}</span>
+            {machines.length > 1 && <small>{machine.label}</small>}
+          </ListItemButton>
+        ))}
+      </div>
+    ) : <p className="project-search-empty">No projects available.</p>}
+  </DesktopPopover>;
 }
