@@ -9,7 +9,7 @@ import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import { Disclosure } from '@/features/shell/Disclosure';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -21,10 +21,11 @@ import { GlobalInstructions } from './GlobalInstructions';
 import { SecurityLevelDetails } from './SecurityLevelNotice';
 
 /** Settings always address the home machine, including while an executor's session is open. */
-export function MachineSettingsDialog({ open, securityLevel, executionHealth, onClose, onRefresh, onSetDockerEnabled, onAvailableUpdates }: {
+export function MachineSettingsDialog({ open, securityLevel, executionHealth, immersiveEntry, onClose, onRefresh, onSetDockerEnabled, onAvailableUpdates }: {
   open: boolean;
   securityLevel: SecurityLevel;
   executionHealth?: ExecutionHealth;
+  immersiveEntry?: ReactNode;
   onClose(): void;
   onRefresh(): Promise<void>;
   onSetDockerEnabled(enabled: boolean): Promise<void>;
@@ -50,6 +51,10 @@ export function MachineSettingsDialog({ open, securityLevel, executionHealth, on
       <IconButton type="button" aria-label="Close settings" onClick={onClose}>×</IconButton>
     </DialogTitle>
     <DialogContent dividers className="machine-settings-body">
+      {immersiveEntry && <Paper component="section" sx={{ p: 2, mt: 2 }} aria-label="Virtual reality">
+        <strong>Virtual reality</strong>
+        {immersiveEntry}
+      </Paper>}
       <Paper component="section" sx={{ p: 2, mt: 2 }} className="arena-docker-settings" aria-label="Security level">
         <strong>Security level</strong>
         <SecurityLevelDetails level={securityLevel} />

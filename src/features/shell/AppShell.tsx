@@ -257,6 +257,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     .sort((a, b) => Number(b.role === 'primary') - Number(a.role === 'primary'))
     .flatMap(binding => checkouts.filter(checkout => checkout.id === binding.checkoutId)), [selectedProject, hostId, checkouts]);
   const [vrUnavailable, setVrUnavailable] = useState<string>();
+  const [vrSettingsTarget, setVrSettingsTarget] = useState<HTMLDivElement | null>(null);
   // The creation forms fall back to an available provider when this one is not.
   const newProvider = preferences.provider ?? 'claude';
   const [creatingSession, setCreatingSession] = useState(false);
@@ -2504,7 +2505,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [arena.machines, arenaOpen, inlineSetupRequest, launcher.openForProject, loading, machineId, panelLayout.showCanvas, projectId, selectedProject, sessionId, sessionChoices.length]);
 
-  const handleImmersiveActive = useCallback((active: boolean) => { if (!active) launcher.invalidateCapture(); setImmersiveActive(active); }, [launcher.invalidateCapture]);
+  const handleImmersiveActive = useCallback((active: boolean) => {
+    if (!active) launcher.invalidateCapture();
+    else setMachineSettingsOpen(false);
+    setImmersiveActive(active);
+  }, [launcher.invalidateCapture]);
 
   const archiveArenaSession = useCallback(async (
     targetMachineId: string, target: Pick<ArenaSessionSummary, 'id' | 'revision' | 'title' | 'projectId'>,
@@ -3028,7 +3033,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onManage={(project, action) => { if (machineId) setProjectManagementTarget({ machineId, project, action }); }}
                   onLogo={project => { if (machineId) setProjectLogoTarget({ machineId, project }); }}
                 />
-                <WorkspaceTabs
+                {!compact && <WorkspaceTabs
                   sessions={sessionChoices}
                   focusedSessionId={sessionId}
                   runsBySession={runTabsBySession}
@@ -3039,9 +3044,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   onArchive={archiveOpenSession}
                   closeDisabledReasons={closeSessionDisabledReasons}
                   archiveDisabledReasons={archiveSessionDisabledReasons}
-                />
+                />}
                 <SessionPicker
                   archiveControl={<SessionArchivePicker key={projectScope}
+                    active={compact ? { sessions: sessionChoices, value: sessionId, runs: runTabsBySession, unread: unreadBySession, onSelect: focusSession } : undefined}
                     sessions={immersiveMachine?.archivedSessions.filter(item => item.projectId === projectId) ?? []}
                     online={immersiveMachine?.machine.state === 'online'} refreshError={arena.refreshError} onRefresh={arena.refresh}
                     onRestore={async target => {
@@ -3093,6 +3099,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onClick={launcher.open}><span className="arena-action-label">New session</span></Button>
           </div>}
           <ImmersiveBoundary
+            entryTarget={compact ? vrSettingsTarget : undefined}
             canvasReview={!loading && session ? {
               attachmentIds: pendingAttachmentIds,
               canCreateSketch: !sessionRunning,
@@ -3262,6 +3269,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         onClose={() => setObserverOpen(false)} />
       {!loading && <MachineSettingsDialog
         open={machineSettingsOpen}
+        immersiveEntry={compact ? <>
+          <div ref={setVrSettingsTarget} />
+          {vrUnavailable && <p role="status">{vrUnavailable}</p>}
+        </> : undefined}
         securityLevel={arena.machines.find((entry) => entry.machine.kind === 'local')?.securityLevel || 'guarded'}
         executionHealth={localExecutionHealth}
         onClose={() => setMachineSettingsOpen(false)}
@@ -3334,7 +3345,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 }}
               >Archive session</Button>
             )}
-            {vrUnavailable && <><Divider /><p><strong>VR unavailable</strong>{vrUnavailable}</p></>}
+            {!compact && vrUnavailable && <><Divider /><p><strong>VR unavailable</strong>{vrUnavailable}</p></>}
             {lifecycle.available && <CodeAiLifecycleMenu lifecycle={lifecycle} onRequest={() => {
               moreMenuRef.current?.close();
               lifecycle.ask();

@@ -287,6 +287,11 @@ Updated 2026-11-21. When a story ships, change the line that names it; each stor
   view closing. All 114 focused unit checks, 77 distinct production-browser cases, TypeScript,
   isolated build, both-theme desktop/phone screenshot inspection and independent review pass;
   wider external-archive and canvas-reload verification gaps are recorded in the story.
+  The November 21 mobile follow-up replaces tabs with a current-session dropdown containing active
+  sessions and project archives, hides the navigation logo and moves Enter VR into Machine settings.
+  All 93 focused unit checks, 27 production-browser cases, TypeScript, isolated build, both-theme
+  desktop/phone screenshot inspection and independent review pass; two unchanged-head VR failures
+  are recorded in the story.
   The running application has not been rebuilt or restarted.
 - **Next shell story:** Story 74, status-bar — planned in the workbench shell epic. The development
   queue's next implementation item is Q5, Story 7's persistent repository model.

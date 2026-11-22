@@ -821,7 +821,7 @@ async function workspaceFixture(page: Page, withRepository = false, historyMessa
     if (sketch) { local.sketches.push(sketch); local.revision++; }
     return route.fulfill({ status: 201, json: { session: local } });
   });
-  await page.route(`**/api/sessions/${SESSION}`, (route) => route.fulfill({ json: { session: local } }));
+  await page.route(new RegExp(`/api/sessions/${SESSION}(?:\\?.*)?$`), (route) => route.fulfill({ json: { session: local } }));
   await page.route(`**/api/machines/${REMOTE}/**`, async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/sessions')) {
@@ -865,6 +865,66 @@ async function released(page: Page) {
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.sessionActive)).toBe(false);
   await expect.poll(() => page.evaluate(() => window.__CODEAI_IMMERSIVE_INSTRUMENTATION__?.liveResources)).toBe(0);
   await expect.poll(() => page.evaluate(() => window.xrFixture.listeners)).toBe(0);
+}
+
+test('mobile VR entry lives in settings and preserves the renderer through entry and resizing', async ({ page }) => {
+  await installAdapter(page);
+  await workspaceFixture(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(page.locator('.app-header').getByRole('button', { name: 'Enter VR', exact: true })).toHaveCount(0);
+  await page.locator('.more-menu > button').click();
+  await page.getByRole('button', { name: 'Machine settings', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Machine settings', exact: true });
+  await expect(settings.getByRole('button', { name: 'Enter VR', exact: true })).toBeEnabled();
+  await settings.getByRole('button', { name: 'Enter VR', exact: true }).focus();
+  await expect(settings.getByRole('button', { name: 'Enter VR', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(settings).toBeHidden();
+  for (const theme of ['Light', 'Dark']) {
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: theme, exact: true }).click();
+    await page.getByRole('button', { name: 'Machine settings', exact: true }).click();
+    await settings.screenshot({ path: `/tmp/codeai-vr-settings-${theme.toLowerCase()}.png`, animations: 'disabled' });
+    await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
+  }
+  await page.locator('.more-menu > button').click();
+  await page.getByRole('button', { name: 'Machine settings', exact: true }).click();
+  await page.evaluate(() => { window.xrFixture.reject = true; });
+  await settings.getByRole('button', { name: 'Enter VR', exact: true }).click();
+  await expect(settings.getByRole('alert')).toContainText('Immersive entry was denied');
+  await settings.getByRole('button', { name: 'Dismiss VR notice', exact: true }).focus();
+  await expect(settings.getByRole('button', { name: 'Dismiss VR notice', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(settings).toBeHidden();
+  await page.locator('.more-menu > button').click();
+  await page.getByRole('button', { name: 'Machine settings', exact: true }).click();
+  await page.evaluate(() => { window.xrFixture.reject = false; });
+  await enter(page);
+  await expect(settings).toBeHidden();
+  await controls(page).getByRole('button', { name: 'Exit VR', exact: true }).click();
+  await released(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.locator('.app-header').getByRole('button', { name: 'Enter VR', exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => window.xrFixture.entries)).toBe(2);
+});
+
+for (const failImport of [false, true]) {
+  test(`mobile VR settings report ${failImport ? 'renderer failure' : 'unsupported VR'}`, async ({ page }) => {
+    await installAdapter(page, { supported: failImport, failImport });
+    await workspaceFixture(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await page.locator('.more-menu > button').click();
+    await page.getByRole('button', { name: 'Machine settings', exact: true }).click();
+    const settings = page.getByRole('dialog', { name: 'Machine settings', exact: true });
+    if (failImport) await expect(settings.getByRole('alert')).toContainText('The immersive renderer could not load');
+    else await expect(settings.getByRole('region', { name: 'Virtual reality', exact: true })).toContainText('does not support immersive VR');
+    await expect(page.locator('.app-header').getByRole('button', { name: 'Enter VR', exact: true })).toHaveCount(0);
+    await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
+    await page.getByRole('button', { name: 'Chat', exact: true }).click();
+    await expect(page.getByRole('complementary', { name: 'Conversation' })).toBeVisible();
+  });
 }
 
 for (const location of ['Arena', 'Inbox', 'Flat', 'Spatial', 'Empty'] as const) {

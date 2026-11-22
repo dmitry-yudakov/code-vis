@@ -458,8 +458,8 @@ export function InstructionComposer({
   useEffect(() => {
     // Opening a session should not bring up the on-screen keyboard on phones or touch devices.
     if (window.matchMedia(MOBILE_INPUT_QUERY).matches) return;
-    // Session navigation owns keyboard focus on its tab; explicit focus requests still win.
-    if (autoFocus && document.activeElement?.getAttribute('role') !== 'tab') ref.current?.focus();
+    // Header navigation owns keyboard focus; explicit focus requests still win.
+    if (autoFocus && !document.activeElement?.closest('.header-breadcrumbs')) ref.current?.focus();
   }, [autoFocus]);
   useEffect(() => {
     if (!(focusRequest || autoFocusRequest) || !ref.current) return;

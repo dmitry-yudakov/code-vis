@@ -926,17 +926,18 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .dock-capacity-0 .repository-sidebar { grid-template-columns: minmax(0, 1fr); }
 .dock-capacity-0 .app-header { flex-wrap: nowrap; gap: 4px; padding: 0 6px; }
 .dock-capacity-0 .brand { min-height: 40px; }
+.dock-capacity-0:not(.arena-mode) .brand { display: none; }
 .dock-capacity-0 .header-breadcrumbs { gap: 3px; }
-.dock-capacity-0 .project-search-picker { max-width: 90px; flex-shrink: 1; }
-.dock-capacity-0 .project-picker-with-logo { max-width: 90px; flex-shrink: 1; }
+.dock-capacity-0 .project-search-picker { max-width: 100%; flex-shrink: 1; }
+.dock-capacity-0 .project-picker-with-logo { max-width: 40%; flex-shrink: 0; }
 .dock-capacity-0 .project-search-trigger { max-width: 100%; padding-inline: 6px; min-height: 40px; }
-.dock-capacity-0 .workspace-tabs { flex-basis: 80px; }
-.dock-capacity-0 .workspace-tab { min-height: 40px; }
-.dock-capacity-0 .session-picker { gap: 0; }
-.dock-capacity-0 .session-archive-menu > button { width: 40px; height: 40px; }
+.dock-capacity-0 .session-picker { flex: 1; min-width: 0; gap: 0; }
+.dock-capacity-0 .session-archive-menu { flex: 1; min-width: 0; }
+.dock-capacity-0 .session-archive-menu > button { width: 100%; min-width: 0; min-height: 40px; justify-content: space-between; }
+.session-selector-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-capacity-0 .new-session-label { display: none; }
 .dock-capacity-0 .new-session-menu > button { min-width: 40px; min-height: 40px; padding-inline: 6px; }
-/* Keep the capability-based VR entry. Routine health/device details live in More. */
+/* Compact VR entry lives in Machine settings; its renderer stays mounted in the header. */
 .dock-capacity-0 .header-actions { flex: none; }
 .dock-capacity-0 .header-actions .health-pill { display: none; }
 .dock-capacity-0 .activity-bar { flex-direction: row; justify-content: space-around; padding: 0 4px env(safe-area-inset-bottom, 0px); gap: 0; border-right: 0; border-top: 1px solid var(--line); }

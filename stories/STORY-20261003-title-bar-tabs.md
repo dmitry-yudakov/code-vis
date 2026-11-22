@@ -186,6 +186,45 @@ the recovered run's working class, including with empty test data, so that compa
 establish the canvas-loading failure's cause. No canvas-loading or saved canvas-state code changes
 are included here. These gaps do not count as passing verification.
 
+## November 21 follow-up — mobile session selector
+
+**Status:** Shipped
+
+At the existing compact layout threshold, hide the CodeAI navigation logo in the session/project
+header and replace the tab strip and archive chevron with one Session dropdown. Its value is the
+current session title; its menu lists scoped active sessions, live/unread details and the existing
+project archive with Restore. Keep the project picker and New session button. Desktop tabs and
+their archive controls retain their behavior; compact headers have no tab ×.
+
+Move compact Enter VR and its failure feedback to More → Machine settings → Virtual reality.
+The boundary and renderer stay mounted while entry controls appear inside settings, preserving
+preparation, user activation, retry and resource cleanup. Successful entry closes settings.
+Header navigation keeps keyboard focus at intermediate compact widths as well as phone widths.
+Crossing the compact breakpoint closes the session menu so its anchor remains attached.
+
+The implementation reuses `SessionArchivePicker`, the existing session/restore handlers and
+`ImmersiveBoundary`; no server, persistence or provider behavior changes. The immersive browser
+fixture now matches the recent-session query used by the existing incremental loader.
+
+Verification covers switching and reload with independent drafts, real archive/Restore, active
+selection and keyboard focus, scoped/offline/failed archive refresh recovery, an open menu across
+resize, both themes at 320/390/700px and desktop, and settings VR entry/denial/retry/exit, unsupported
+VR and renderer failure. The new mobile-header regression fails against `.next-e2e/brand-logo`,
+and the resize regression fails before the picker-key fix.
+
+All **93 focused unit checks**, **27 production-browser cases** (21 header and six VR cases),
+TypeScript, isolated production build into `.next-e2e/mobile-session-header`, whitespace checks,
+both-theme desktop/phone screenshot inspection and independent review pass. Pending Restore
+remains guarded across both layout changes; success closes the current menu and delayed completion
+preserves newer navigation and composer focus. Its guard regression failed before the final fix.
+Escape with Enter VR and Dismiss VR notice explicitly focused passes without additional handlers.
+Generated build paths were removed from `tsconfig.json`.
+
+The broader existing VR entry tests from Arena and Inbox fail before entry while expecting a
+focused conversation to be persisted on those routes. Both fail at the identical assertion on
+the preceding `.next-e2e/brand-logo` build with the same fixture correction. They are outside the
+passing set. Physical phone/headset acceptance is not claimed; the running app is not restarted.
+
 ## How to verify
 
 1. Run `npm run lint` and the focused workspace-tab, workspace-view, panel-layout, and token unit tests.

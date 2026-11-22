@@ -2,6 +2,7 @@
 
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import { useImmersiveLayout } from './useImmersiveLayout';
 import { PANEL_IDS, PANEL_TITLES, PANEL_COMMAND_LABELS } from './workspaceLayout';
@@ -62,8 +63,10 @@ type Props = Pick<ImmersiveWorkspaceProps, 'launcher' | 'conversation' | 'canvas
   reportContext: ImmersiveReportContext;
   onSelectCanvas(id: string): void;
   onActiveChange(active: boolean): void;
-  /** Why VR cannot be entered here, for the shell's menu; undefined while checking or available. */
+  /** Why VR cannot be entered here; undefined while checking or available. */
   onUnavailable(reason?: string): void;
+  /** Undefined keeps header controls; null hides them until settings mounts. The renderer stays mounted. */
+  entryTarget?: HTMLElement | null;
 };
 
 const ACTIONS: Array<[ImmersiveSemanticAction, string]> = [
@@ -77,7 +80,7 @@ const ACTIONS: Array<[ImmersiveSemanticAction, string]> = [
 ];
 
 /** XR presentation state only. AppShell supplies records, navigation actions, and polling results. */
-export function ImmersiveBoundary({ authorized, reportContext, onSelectCanvas, onActiveChange, onUnavailable, ...props }: Props) {
+export function ImmersiveBoundary({ authorized, reportContext, onSelectCanvas, onActiveChange, onUnavailable, entryTarget, ...props }: Props) {
   const panelState = useImmersiveLayout(props.viewKey);
   const [availability, setAvailability] = useState<ImmersiveAvailability>('checking');
   const [reason, setReason] = useState<string>();
@@ -129,9 +132,9 @@ export function ImmersiveBoundary({ authorized, reportContext, onSelectCanvas, o
     if (next) onSelectCanvas(next);
   };
 
-  return <div className={`immersive-entry ${availability}`}>
+  const entry = <>
     {availability === 'active' ? <strong>Immersive workspace active</strong>
-      : enabled ? <Button type="button" className="immersive-enter" disabled={!controller || availability === 'entering'} onClick={() => void controller?.enter()}>
+      : enabled ? <Button type="button" variant="contained" className="immersive-enter" disabled={!controller || availability === 'entering'} onClick={() => void controller?.enter()}>
         {availability === 'entering' ? 'Entering VR…' : controller ? 'Enter VR' : 'Preparing VR…'}
       </Button>
         : null}
@@ -141,6 +144,10 @@ export function ImmersiveBoundary({ authorized, reportContext, onSelectCanvas, o
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7 7 17M7 7l10 10" /></svg>
       </IconButton>
     </div>}
+  </>;
+
+  return <div className={`immersive-entry ${availability}`}>
+    {entryTarget ? createPortal(entry, entryTarget) : entryTarget === undefined ? entry : null}
     {enabled && authorized && <RendererBoundary onError={(message) => handleAvailability('failed', `The immersive renderer could not load: ${message}`)}>
       <ImmersiveRenderer {...props} {...panelState}
         active={active} activeTarget={activeTarget} choices={choices}
