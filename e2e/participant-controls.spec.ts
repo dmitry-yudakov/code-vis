@@ -22,6 +22,64 @@ async function open(page: Page, session: PublicSession) {
 function panel(page: Page) { return page.locator('.desktop-picker-paper:visible').filter({ has: page.locator('.participant-menu') }); }
 function addParticipantButton(page: Page) { return panel(page).getByRole('button', { name: 'Add participant', exact: true }); }
 
+for (const { device, width, touch, theme } of [
+  { device: 'desktop', width: 1280, touch: false, theme: 'light' },
+  { device: 'phone', width: 390, touch: true, theme: 'dark' },
+]) {
+  test.describe(`participant context help on ${device}`, () => {
+    test.use({ viewport: { width, height: 900 }, hasTouch: touch, isMobile: touch });
+
+    test('explains shared history without changing the draft or recipient', async ({ page, request }, testInfo) => {
+      await page.addInitScript(theme => localStorage.setItem('code-ai:theme', theme), theme);
+      const { session } = await fixture(request);
+      const added = await request.post(`/api/sessions/${session.id}/participants`, {
+        data: { provider: 'claude', role: 'reviewer', requestId: crypto.randomUUID() },
+      });
+      expect(added.ok()).toBe(true);
+      const conversation = await open(page, session);
+      const agents = conversation.getByRole('button', { name: 'Session agents', exact: true });
+      const composer = conversation.getByRole('textbox', { name: 'Instruction', exact: true });
+      await composer.fill('Keep my draft');
+      await agents.click();
+      const menu = panel(page);
+      const help = menu.getByRole('button', { name: 'What context does an agent receive?', exact: true });
+      const draftLabel = menu.getByText('Draft a message', { exact: true });
+      const tooltip = page.getByRole('tooltip').filter({ hasText: 'Tool calls' });
+      await expect(help).toBeVisible();
+      await expect(tooltip).toBeHidden();
+      if (touch) await help.tap();
+      else await help.hover();
+      await expect(tooltip).toBeVisible();
+      await expect(tooltip).toContainText('final replies');
+      await expect(help).toHaveAccessibleDescription(/Tool calls, results, and approvals stay with the original turn/);
+      await expect(tooltip).toBeInViewport();
+      await expect(tooltip.locator('.MuiTooltip-tooltip')).toHaveCSS('opacity', '1');
+      await page.screenshot({ path: testInfo.outputPath('participant-context-help.png'), animations: 'disabled' });
+
+      if (touch) {
+        await draftLabel.tap();
+        await expect(tooltip).toBeHidden();
+        await expect(menu).toBeVisible();
+      } else {
+        await draftLabel.hover();
+        await expect(tooltip).toBeHidden();
+        await agents.press('ArrowDown');
+        await expect(menu.getByRole('button', { pressed: true })).toBeFocused();
+        await page.keyboard.press('Tab');
+        await page.keyboard.press('Tab');
+        await expect(help).toBeFocused();
+        await expect(tooltip).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(tooltip).toBeHidden();
+        await expect(agents).toBeFocused();
+      }
+      await expect(composer).toHaveValue('Keep my draft');
+      await expect(agents).not.toContainText('Reviewer');
+      await expect(conversation.locator('.chat-message.user')).toHaveCount(0);
+    });
+  });
+}
+
 for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
   test(`participant selection and message drafts are distinct: ${theme} ${width}`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
@@ -36,10 +94,11 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     const menu = panel(page);
     const recipients = menu.getByRole('region', { name: 'Next message to', exact: true });
     const handoffs = menu.getByRole('region', { name: 'Draft a message', exact: true });
+    const review = handoffs.getByRole('button', { name: 'Review this → @Claude Reviewer', exact: true });
     await expect(agents.locator('[data-provider-logo="claude"]')).toBeVisible();
     await expect(recipients.locator('[data-provider-logo="claude"]')).toHaveCount(2);
     await expect(recipients.getByRole('button', { pressed: true })).toContainText('Main');
-    await expect(handoffs.getByRole('button')).toHaveText('Review this → @Claude Reviewer');
+    await expect(review).toBeVisible();
     const addParticipant = addParticipantButton(page);
     const providers = menu.getByRole('group', { name: 'Provider', exact: true });
     await expect(addParticipant).toHaveAttribute('aria-expanded', 'false');
@@ -68,7 +127,7 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await agents.click();
     await recipients.getByRole('button').filter({ hasText: '@Claude', hasNotText: 'Reviewer' }).click();
     await agents.click();
-    await handoffs.getByRole('button', { name: 'Review this → @Claude Reviewer', exact: true }).click();
+    await review.click();
     await expect(composer).toHaveValue(/Review the latest proposal or changes above/);
     await expect(conversation.locator('.chat-message.user')).toHaveCount(0);
     await expect(agents).toContainText('Reviewer');

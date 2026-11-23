@@ -4,12 +4,16 @@ import { useId, useState } from 'react';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
+import ClickAwayListener from '@mui/material/ClickAwayListener';
 import Divider from '@mui/material/Divider';
+import IconButton from '@mui/material/IconButton';
 import NativeSelect from '@mui/material/NativeSelect';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import type { AgentMode, AgentParticipant, AgentProvider, AgentRole } from '@/shared/types';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
+import { ShellIcon } from '@/features/shell/ShellIcon';
 import type { DevicePreferences } from '@/features/shell/devicePreferences';
 import { AGENT_ROLES, AGENT_ROLE_LABELS } from '@/shared/participants';
 import { ContextUsage } from './ContextUsage';
@@ -42,6 +46,7 @@ export function ParticipantControls({
   onHandoff(participantId: string, text: string, mode: AgentMode): void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [helpTrigger, setHelpTrigger] = useState<'preview' | 'click'>();
   const addFormId = useId();
   const role = choice.role ?? 'reviewer';
   const selected = agents.find((agent) => agent.id === activeAgentId) || agents[0];
@@ -55,7 +60,12 @@ export function ParticipantControls({
         @{selected?.displayName || 'Agent'} ▾
       </Box>
     </>} disabled={disabled || busy}
-      onOpenChange={open => { if (!open) setAdding(false); }}>
+      onOpenChange={open => {
+        if (!open) {
+          setAdding(false);
+          setHelpTrigger(undefined);
+        }
+      }}>
       {(close) => <div className="participant-menu">
         <Box component="section" aria-label="Next message to">
           <Typography variant="caption" color="text.secondary">Next message to</Typography>
@@ -77,7 +87,24 @@ export function ParticipantControls({
         {quickAgents.length > 0 && <>
           <Divider />
           <Box component="section" aria-label="Draft a message">
-            <Typography variant="caption" color="text.secondary">Draft a message</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">Draft a message</Typography>
+              <ClickAwayListener onClickAway={() => setHelpTrigger(undefined)}>
+                <Box component="span" role="presentation" sx={{ display: 'inline-flex' }}>
+                  <Tooltip describeChild placement="top" disableTouchListener open={Boolean(helpTrigger)}
+                    onOpen={() => setHelpTrigger('preview')}
+                    onClose={event => {
+                      // A tap can emit a synthetic mouseleave immediately after the click.
+                      if (event.type !== 'mouseleave' || helpTrigger !== 'click') setHelpTrigger(undefined);
+                    }}
+                    title="Your message goes to the selected agent. Agents keep separate sessions and catch up on recent chat, including messages you sent to other agents and those agents’ final replies. Tool calls, results, and approvals stay with the original turn.">
+                    <IconButton type="button" aria-label="What context does an agent receive?" onClick={() => setHelpTrigger('click')}>
+                      <ShellIcon name="help" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              </ClickAwayListener>
+            </Box>
             {quickAgents.map(agent => <Button key={agent.id} variant="text" sx={{ justifyContent: 'flex-start', textAlign: 'left', width: '100%' }}
               title="Prefill only — edit before sending" onClick={() => { onHandoff(agent.id, HANDOFF_PROMPTS[agent.role], agent.defaultMode); close(); }}>
               {agent.role === 'reviewer' ? 'Review this' : agent.role === 'tester' ? 'Verify this' : 'What next?'} → @{agent.displayName}
