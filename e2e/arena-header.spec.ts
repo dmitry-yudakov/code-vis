@@ -42,7 +42,8 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 360]) {
     await page.screenshot({ path: testInfo.outputPath('compact-arena.png'), animations: 'disabled' });
     await page.keyboard.press('Control+k');
     const projects = page.getByRole('listbox', { name: 'Projects', exact: true });
-    await expect(projects.getByRole('option', { name: project.name, exact: true })).toBeFocused();
+    await expect(page.getByRole('combobox', { name: 'Search projects', exact: true })).toBeFocused();
+    await expect(projects.getByRole('option', { selected: true })).toHaveAccessibleName(project.name);
     await page.screenshot({ path: testInfo.outputPath('arena-project-picker.png'), animations: 'disabled' });
     await page.keyboard.press('Escape');
     for (const section of ['Inbox', 'Archived']) {
@@ -81,7 +82,11 @@ test('Arena Projects opens the selected executor workspace', async ({ page, requ
   await page.keyboard.press('Control+k');
   const projects = page.getByRole('listbox', { name: 'Projects', exact: true });
   await expect(projects.getByRole('option', { name: /Offline executor/ })).toHaveCount(0);
-  await projects.getByRole('option', { name: /Executor project Online executor/ }).press('Enter');
+  const search = page.getByRole('combobox', { name: 'Search projects', exact: true });
+  await expect(search).toBeFocused();
+  await page.keyboard.type('exctrprj');
+  await expect(projects.getByRole('option', { selected: true })).toHaveAccessibleName('Executor project Online executor');
+  await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`/?project=${remoteProject.id}&machine=${remoteId}`);
   await expect(page.getByRole('button', { name: `Project: ${remoteProject.name}`, exact: true })).toBeVisible();
 });

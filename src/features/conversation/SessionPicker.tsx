@@ -148,15 +148,18 @@ export function SessionCreationForm({ initialExecution = 'local', executionHealt
   );
 }
 
-export function SessionPicker({ value, onQueueSetup, archiveControl, ...creation }: SessionCreationProps & {
+export function SessionPicker({ value, shortcut, onQueueSetup, archiveControl, ...creation }: SessionCreationProps & {
   value?: string;
+  shortcut?: boolean;
   onQueueSetup?(): void;
   archiveControl?: ReactNode;
 }) {
   return (
     <div className="session-picker">
       {archiveControl}
-      <DesktopPopover keepMounted className="new-session-menu" label="New session" summary={<><span aria-hidden="true">＋</span><span className="new-session-label">New</span></>} placement="bottom-end">
+      <DesktopPopover keepMounted className="new-session-menu" label="New session"
+        shortcutKey={shortcut && !creation.creating ? 'Enter' : undefined} shortcutShift focusOnKeyboardOpen
+        summary={<><span aria-hidden="true">＋</span><span className="new-session-label">New</span></>} placement="bottom-end">
         {(close) => <div>
           {onQueueSetup && <Button variant="outlined" fullWidth sx={{ mb: 1.5 }} disabled={creation.creating}
             onClick={() => { close(); onQueueSetup(); }}>Queue session…</Button>}

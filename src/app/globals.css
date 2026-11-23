@@ -33,14 +33,11 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .project-picker-with-logo > .project-search-picker { flex-shrink: 1; }
 .project-search-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-search-trigger > .shell-icon, .session-archive-menu .shell-icon { width: 22px; height: 22px; flex-shrink: 0; color: var(--muted); stroke-width: 2; }
-.project-search-meta { display: flex; align-items: center; justify-content: space-between; padding: 3px 4px 9px; color: var(--muted); font-size: 10px; }
-.project-search-meta strong { color: var(--ink); font-size: 11px; }
-.project-search-meta span { padding: 3px 7px; border-radius: 999px; color: var(--live-ink); background: var(--live-wash); font: 9px/1 var(--mono); }
 .project-create-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; padding: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--raised); }
 .project-search-input { height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 10px; }
 .project-search-input:focus-within { border-color: var(--plot-bright); box-shadow: 0 0 0 3px var(--focus-wash); }
 .project-search-input > span { color: var(--plot); font-size: 17px; }
-.project-search-results { max-height: min(420px, 55vh); margin-top: 7px; overflow-y: auto; display: grid; gap: 3px; }
+.project-search-results { max-height: min(360px, 34dvh); margin-top: 7px; overflow-y: auto; display: grid; gap: 3px; }
 .project-search-group { display: grid; gap: 3px; }
 .project-search-group + .project-search-group { margin-top: 5px; padding-top: 8px; border-top: 1px solid var(--line); }
 .project-search-group-label { padding: 3px 10px 2px; color: var(--muted); font: 600 9px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; }
@@ -847,7 +844,6 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .participant-add-form label { display: grid; gap: 4px; }
 
 .project-search-trigger { max-width: 100%; min-width: 0; display: flex; gap: 6px; overflow: hidden; }
-.project-search-popover { display: grid; gap: 8px; min-width: 0; }
 .desktop-more-content { display: grid; gap: 6px; }
 .desktop-more-content > button, .desktop-more-content > .activity-more-item { width: 100%; justify-content: flex-start; text-align: left; }
 .desktop-more-content > .activity-more-item { min-height: 40px; }

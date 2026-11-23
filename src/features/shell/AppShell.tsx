@@ -3120,6 +3120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       return true;
                     }} />}
                   onOpenMachineSettings={workspaceMachineId ? undefined : openMachineSettings}
+                  shortcut={Boolean(selectedProject) && !immersiveActive && !openingWorkspace && !navigationError && !launcher.isOpen}
                   worktrees={health?.worktrees}
                   value={sessionId}
                   initialExecution={session?.execution}

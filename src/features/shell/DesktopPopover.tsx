@@ -12,7 +12,7 @@ import { hasVisibleKeyboardOverlay } from './keyboardOverlays';
 export interface DesktopPopoverHandle { close(): void; trigger: HTMLButtonElement | null }
 
 export function DesktopPopover({ className, label, summary, disabled = false, color = 'inherit', placement = 'top-start', anchorSelector,
-  control, onOpenChange, triggerClassName, description, shortcutKey, icon = false, width = 320, keepMounted = false,
+  control, onOpenChange, triggerClassName, description, shortcutKey, shortcutShift = false, icon = false, width = 320, keepMounted = false,
   focusOnKeyboardOpen = false, group, children }: {
   className: string;
   label: string;
@@ -26,6 +26,7 @@ export function DesktopPopover({ className, label, summary, disabled = false, co
   triggerClassName?: string;
   description?: string;
   shortcutKey?: string;
+  shortcutShift?: boolean;
   icon?: boolean;
   width?: number;
   keepMounted?: boolean;
@@ -57,29 +58,30 @@ export function DesktopPopover({ className, label, summary, disabled = false, co
   onOpenChangeRef.current = onOpenChange;
   useEffect(() => { onOpenChangeRef.current?.(opened); }, [opened]);
   useEffect(() => { if (disabled) setAnchor(null); }, [disabled]);
+  const focusItem = useCallback((last: boolean) => {
+    const items = panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)');
+    if (items?.length) items[last ? items.length - 1 : 0].focus();
+    else trigger.current?.focus({ preventScroll: true });
+  }, []);
   useEffect(() => {
     if (!shortcutKey || disabled) return;
     const openFromShortcut = (event: globalThis.KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.shiftKey !== shortcutShift
         || event.ctrlKey === event.metaKey || event.key.toLowerCase() !== shortcutKey.toLowerCase()) return;
       const button = trigger.current;
       if (!button?.getClientRects().length || hasVisibleKeyboardOverlay(panel.current)) return;
       event.preventDefault();
-      if (anchor || event.repeat) return;
-      open(button);
-      requestAnimationFrame(() => {
-        const option = panel.current?.querySelector<HTMLElement>('button[role="option"][aria-selected="true"]:not(:disabled)')
-          ?? panel.current?.querySelector<HTMLElement>('button[role="option"]:not(:disabled)');
-        (option ?? trigger.current)?.focus();
-      });
+      if (event.repeat) return;
+      if (!anchor) open(button);
+      requestAnimationFrame(() => focusItem(false));
     };
     document.addEventListener('keydown', openFromShortcut, true);
     return () => document.removeEventListener('keydown', openFromShortcut, true);
-  }, [anchor, disabled, open, shortcutKey]);
+  }, [anchor, disabled, focusItem, open, shortcutKey, shortcutShift]);
   useEffect(() => {
     if (!anchor) return;
     const escape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
       event.stopPropagation();
       setAnchor(null);
@@ -89,11 +91,8 @@ export function DesktopPopover({ className, label, summary, disabled = false, co
     document.addEventListener('keydown', escape, true);
     return () => document.removeEventListener('keydown', escape, true);
   }, [anchor]);
-  const focusItem = (last: boolean) => {
-    const items = panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)');
-    if (items?.length) items[last ? items.length - 1 : 0].focus();
-  };
-  const shortcut = disabled ? undefined : shortcutKey?.toUpperCase();
+  const shortcut = !disabled && shortcutKey
+    ? `${shortcutShift ? 'Shift+' : ''}${shortcutKey.length === 1 ? shortcutKey.toUpperCase() : shortcutKey}` : undefined;
   const triggerProps = {
     ref: trigger, disabled, color, className: triggerClassName,
     'aria-label': label, 'aria-description': description,

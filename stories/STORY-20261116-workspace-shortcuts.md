@@ -98,3 +98,32 @@ light and dark Arena screenshots at desktop and phone widths, and independent re
 Chrome on Linux received a native Ctrl+K in both entry points. Browser automation exercised Meta+K
 and an attached-executor fixture. Two existing 390px session overflow assertions in the logo suite
 also fail on the pre-change build.
+
+## November 23 follow-up — Search projects and open session setup
+
+- [x] Ctrl/Cmd+K focuses **Search projects** in the workspace and Arena pickers. A
+  case-insensitive subsequence finds project names, and arrow keys and Enter open a result.
+- [x] Escape restores focus to the picker trigger. Reopening starts with an empty query.
+  Project creation, logo, rename and delete controls stay available in the workspace picker.
+- [x] Ctrl/Cmd+Shift+Enter opens **New session** for the active project. The form uses the
+  current project and its owning machine, and the conversation draft survives opening or cancelling it.
+- [x] Other open overlays, IME composition and held shortcut keys retain their keyboard handling.
+
+### Where the code is
+
+- [ProjectPicker.tsx](../src/features/projects/ProjectPicker.tsx#L27) renders and filters both project pickers.
+- [DesktopPopover.tsx](../src/features/shell/DesktopPopover.tsx#L61) owns shortcut dispatch and focus.
+- [SessionPicker.tsx](../src/features/conversation/SessionPicker.tsx#L151) binds the new shortcut to the existing setup form.
+
+### How to verify
+
+Run the workspace shortcut and Arena header Playwright suites against the isolated production
+build. Check fuzzy matching, focus, draft retention, attached-machine navigation and successful
+session creation in the chosen project.
+
+The search focus regression failed on the previous build. All 63 focused unit checks and 76
+distinct production-browser cases passed across workspace shortcuts, Arena headers, project
+management, project workspaces and new chat. TypeScript, the isolated build, light and dark Arena
+picker screenshots at desktop and phone widths, and independent review passed. The wider visual
+language suite still has its existing Google Fonts assertion failure. Chrome exercised Control
+and Meta events. Native macOS keystrokes remain unverified.

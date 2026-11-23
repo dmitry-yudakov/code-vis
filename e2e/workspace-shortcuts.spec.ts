@@ -18,6 +18,7 @@ async function openWorkspace(page: Page, request: APIRequestContext, session = t
 
 const picker = (page: Page) => page.getByRole('dialog', { name: 'Open file', exact: true });
 const search = (page: Page) => picker(page).getByRole('combobox', { name: 'File name or path', exact: true });
+const projectSearch = (page: Page) => page.getByRole('combobox', { name: 'Search projects', exact: true });
 const source = (page: Page) => page.locator('.file-view-content:not([hidden])').getByLabel('File source');
 
 for (const modifier of ['Control', 'Meta']) {
@@ -35,41 +36,75 @@ for (const modifier of ['Control', 'Meta']) {
     await expect(page.getByRole('link', { name: 'Arena', exact: true })).toHaveAttribute('aria-keyshortcuts', 'Control+J Meta+J');
   });
 
-  test(`${modifier}+K opens Projects from a session and from Arena`, async ({ page, request }) => {
-    const { project } = await (await request.post('/api/projects', { data: { name: `Shortcut destination ${modifier}` } })).json();
+  test(`${modifier}+K searches Projects and ${modifier}+Shift+Enter opens session setup`, async ({ page, request }, testInfo) => {
+    if (modifier === 'Meta') {
+      await page.setViewportSize({ width: 390, height: 900 });
+      await page.addInitScript(() => localStorage.setItem('code-ai:theme', 'dark'));
+    }
+    const { project } = await (await request.post('/api/projects', { data: { name: `Keyboard Destination ${modifier}` } })).json();
+    const { project: alternate } = await (await request.post('/api/projects', { data: { name: `Keyboard Destination ${modifier} Alternate` } })).json();
+    const query = `KYBRD DST ${modifier}`;
     await openWorkspace(page, request);
     const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
     const projects = page.getByRole('listbox', { name: 'Projects', exact: true });
-    const destination = projects.getByRole('option', { name: new RegExp(project.name) });
     await input.fill('Keep my project jump draft');
     const sessionUrl = page.url();
     await expect(page.getByRole('button', { name: /^Project: Shortcuts/ })).toHaveAttribute('aria-keyshortcuts', 'Control+K Meta+K');
     await input.press(`${modifier}+k`);
-    const currentProject = projects.getByRole('option', { selected: true });
-    await expect(currentProject).toBeFocused({ timeout: 5000 });
+    await expect(projectSearch(page)).toBeFocused();
+    await page.keyboard.type(query);
+    await expect(projects.getByRole('option')).toHaveCount(2);
+    await expect(projects.getByRole('option').first()).toContainText(project.name);
     await page.keyboard.press('ArrowDown');
-    await expect(projects.locator(':focus')).toHaveRole('option');
-    await expect(currentProject).not.toBeFocused();
+    await expect(projects.getByRole('option', { selected: true })).toContainText(alternate.name);
+    await expect(projectSearch(page)).toBeFocused();
     await page.keyboard.press(`${modifier}+k`);
-    await expect(projects).toBeVisible();
-    await destination.click();
+    await expect(projectSearch(page)).toHaveValue(query);
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
     await expect(page).toHaveURL(`/?project=${project.id}`);
+    const newSession = page.locator('.app-header').getByRole('button', { name: 'New session', exact: true });
+    await expect(newSession).toHaveAttribute('aria-keyshortcuts', 'Control+Shift+Enter Meta+Shift+Enter');
+    await page.keyboard.press(`${modifier}+Shift+Enter`);
+    await expect(page.getByRole('form', { name: 'Create project session' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Queue session…' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(newSession).toBeFocused();
     await page.goBack();
     await expect(page).toHaveURL(sessionUrl);
+    await expect(input).toHaveValue('Keep my project jump draft');
+    await input.press(`${modifier}+Shift+Enter`);
+    await expect(page.getByRole('form', { name: 'Create project session' })).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(input).toHaveValue('Keep my project jump draft');
 
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     const arenaPicker = page.getByRole('button', { name: 'Projects', exact: true });
-    await expect(arenaPicker).toHaveAttribute('aria-keyshortcuts', 'Control+K Meta+K');
+    await arenaPicker.click();
+    await expect(projectSearch(page)).toBeVisible();
     await page.keyboard.press(`${modifier}+k`);
-    await expect(destination).toBeVisible();
-    await expect(projects.locator(':focus')).toHaveRole('option');
+    await expect(projectSearch(page)).toBeFocused();
+    await projectSearch(page).fill('no such project xyz');
+    await expect(page.getByText('No matching projects', { exact: true })).toBeVisible();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/arena$/);
     await page.keyboard.press('Escape');
     await expect(projects).toBeHidden();
     await expect(arenaPicker).toBeFocused();
     await page.keyboard.press(`${modifier}+k`);
-    await destination.press('Enter');
+    await expect(projectSearch(page)).toHaveValue('');
+    await projectSearch(page).fill(query);
+    await page.screenshot({ path: testInfo.outputPath('project-search.png'), animations: 'disabled' });
+    await page.keyboard.press('Enter');
     await expect(page).toHaveURL(`/?project=${project.id}`);
+    await expect(newSession).toHaveAttribute('aria-keyshortcuts', 'Control+Shift+Enter Meta+Shift+Enter');
+    await page.keyboard.press(`${modifier}+Shift+Enter`);
+    const creation = page.waitForResponse(response => new URL(response.url()).pathname === '/api/sessions'
+      && response.request().method() === 'POST');
+    await page.getByRole('form', { name: 'Create project session' }).getByRole('button', { name: 'Start session', exact: true }).click();
+    const { session: created } = await (await creation).json() as { session: PublicSession };
+    expect(created.projectId).toBe(project.id);
+    await expect(page).toHaveURL(`/?session=${created.id}`);
   });
 }
 
@@ -84,11 +119,20 @@ test('navigation shortcuts respect modified keys, composition and open pickers',
       })), { key, ...extra })).toBe(true);
     }
   }
+  for (const extra of [{ isComposing: true }, { repeat: true }, { altKey: true }, { shiftKey: false }, { metaKey: true }]) {
+    await input.evaluate((node, modifiers) => node.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Enter', ctrlKey: true, shiftKey: true, ...modifiers, bubbles: true, cancelable: true,
+    })), extra);
+    await expect(page.getByRole('form', { name: 'Create project session' })).toBeHidden();
+  }
   await input.press('Control+p');
   await expect(search(page)).toBeFocused();
   await search(page).press('Meta+j');
   await search(page).press('Control+k');
+  await search(page).fill('no such file xyz');
+  await search(page).press('Control+Shift+Enter');
   await expect(search(page)).toBeFocused();
+  await expect(page.getByRole('form', { name: 'Create project session' })).toBeHidden();
   await expect(page.getByRole('listbox', { name: 'Projects', exact: true })).toBeHidden();
   await expect(page).toHaveURL(sessionUrl);
   await openWorkspace(page, request, false);

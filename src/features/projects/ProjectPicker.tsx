@@ -7,10 +7,77 @@ import TextField from '@mui/material/TextField';
 
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { ShellIcon } from '@/features/shell/ShellIcon';
-import { useState } from 'react';
+import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { fuzzySearch } from '@/shared/fuzzySearch';
 import type { ArenaMachineSnapshot, DurableProject } from '@/shared/types';
 import { ProjectLogoButton } from './ProjectLogo';
 import type { ProjectAction } from './ProjectActions';
+
+interface ProjectOption {
+  key: string;
+  name: string;
+  detail?: string;
+  current?: boolean;
+  logo?: ReactNode;
+  actions?: ReactNode;
+  open(): void;
+}
+
+function ProjectSearch({ options, children }: { options: ProjectOption[]; children?: ReactNode }) {
+  const listId = useId();
+  const [query, setQuery] = useState('');
+  const [focused, setFocused] = useState(false);
+  const [highlightedKey, setHighlightedKey] = useState<string>();
+  const matches = fuzzySearch(options, query, option => option.name.replace(/\s/g, ''));
+  const highlighted = matches.find(option => option.key === highlightedKey)
+    ?? (!query.trim() ? matches.find(option => option.current) : undefined) ?? matches[0];
+  const activeId = focused && highlighted ? `${listId}-${highlighted.key}` : undefined;
+  useEffect(() => {
+    if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' });
+  }, [activeId]);
+
+  return <>
+    <TextField size="small" fullWidth placeholder="Search projects…" value={query}
+      onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+      onChange={event => { setQuery(event.target.value); setHighlightedKey(undefined); }}
+      slotProps={{ htmlInput: {
+        role: 'combobox', 'aria-label': 'Search projects', 'aria-autocomplete': 'list',
+        'aria-controls': listId, 'aria-expanded': true, 'aria-activedescendant': activeId, autoComplete: 'off',
+        onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => {
+          if (!highlighted || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
+            || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            if (!event.repeat) highlighted.open();
+          } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            const next = matches.indexOf(highlighted) + (event.key === 'ArrowDown' ? 1 : -1);
+            setHighlightedKey(matches[(next + matches.length) % matches.length].key);
+          }
+        },
+      } }}
+    />
+    {children}
+    <div className="project-search-results" id={listId} role="listbox" aria-label="Projects">
+      {matches.map(option => {
+        const id = `${listId}-${option.key}`;
+        const selected = focused ? option === highlighted : Boolean(option.current);
+        const button = <ListItemButton key={option.key} id={id} component="button" type="button"
+          role="option" aria-selected={selected} selected={selected} className="project-search-option" onClick={option.open}>
+          <span>{option.name}</span>
+          {option.detail && <small>{option.detail}</small>}
+          {option.current && <i aria-hidden="true">✓</i>}
+        </ListItemButton>;
+        return option.logo ? <div className="project-record-option" key={option.key} role="presentation">
+          {option.logo}{button}{option.actions}
+        </div> : button;
+      })}
+    </div>
+    {!matches.length && <p className="project-search-empty" role="status">
+      {options.length ? 'No matching projects' : 'No projects available.'}
+    </p>}
+  </>;
+}
 
 export function ProjectPicker({ projects, value, disabled, apiBase, shortcut, onChange, onCreate, onManage, onLogo }: {
   projects: DurableProject[];
@@ -32,13 +99,23 @@ export function ProjectPicker({ projects, value, disabled, apiBase, shortcut, on
     {selected && <ProjectLogoButton project={selected} apiBase={apiBase} disabled={disabled} onClick={() => onLogo(selected)} />}
     <DesktopPopover className="project-search-picker" triggerClassName="project-search-trigger" disabled={disabled}
       label={`Project: ${selected?.name || 'No project'}`} width={390} placement="bottom-start" shortcutKey={shortcut ? 'k' : undefined}
+      focusOnKeyboardOpen
       summary={<><span>{selected?.name || 'No project'}</span><ShellIcon name="chevronDown" /></>}>
       {(close) =>
-        <div className="project-search-popover">
-          <div className="project-search-meta">
-            <strong>Projects</strong>
-            <Button type="button" onClick={() => setCreating(true)}>New project</Button>
-          </div>
+        <ProjectSearch options={[
+          { key: 'loose', name: 'No project', detail: 'Loose sessions', current: !value, open: () => { onChange(undefined); close(); } },
+          ...projects.map(project => ({
+            key: project.id, name: project.name, current: project.id === value,
+            detail: `${project.repositories.length} ${project.repositories.length === 1 ? 'repository' : 'repositories'}`,
+            open: () => { onChange(project.id); close(); },
+            logo: <ProjectLogoButton project={project} apiBase={apiBase} onClick={() => { close(); onLogo(project); }} />,
+            actions: <>
+              <IconButton type="button" aria-label={`Rename ${project.name}`} onClick={() => { close(); onManage(project, 'rename'); }}>✎</IconButton>
+              <IconButton type="button" aria-label={`Delete ${project.name}`} onClick={() => { close(); onManage(project, 'delete'); }}>×</IconButton>
+            </>,
+          })),
+        ]}>
+          <Button type="button" sx={{ display: 'flex', ml: 'auto', mt: 0.5 }} onClick={() => setCreating(true)}>New project</Button>
           {creating && (
             <form className="project-create-form" onSubmit={(event) => {
               event.preventDefault();
@@ -52,28 +129,7 @@ export function ProjectPicker({ projects, value, disabled, apiBase, shortcut, on
               <Button type="button" onClick={() => { setCreating(false); setName(''); }}>Cancel</Button>
             </form>
           )}
-          <div className="project-search-results" role="listbox" aria-label="Projects">
-            <ListItemButton component="button"
-              type="button" role="option" aria-selected={!value} selected={!value} className={`project-search-option${!value ? ' selected' : ''}`} onClick={() => { onChange(undefined); close(); }}
-            >
-              <span>No project</span><small>Loose sessions</small>{!value && <i aria-hidden="true">✓</i>}
-            </ListItemButton>
-            {projects.map((project) => (
-              <div className="project-record-option" key={project.id}>
-                <ProjectLogoButton project={project} apiBase={apiBase} onClick={() => { close(); onLogo(project); }} />
-                <ListItemButton component="button"
-                  type="button" role="option" aria-selected={project.id === value} selected={project.id === value} className={`project-search-option${project.id === value ? ' selected' : ''}`} onClick={() => { onChange(project.id); close(); }}
-                >
-                  <span>{project.name}</span>
-                  <small>{project.repositories.length} {project.repositories.length === 1 ? 'repository' : 'repositories'}</small>
-                  {project.id === value && <i aria-hidden="true">✓</i>}
-                </ListItemButton>
-                <IconButton type="button" aria-label={`Rename ${project.name}`} onClick={() => { close(); onManage(project, 'rename'); }}>✎</IconButton>
-                <IconButton type="button" aria-label={`Delete ${project.name}`} onClick={() => { close(); onManage(project, 'delete'); }}>×</IconButton>
-              </div>
-            ))}
-          </div>
-        </div>
+        </ProjectSearch>
       }
     </DesktopPopover>
     </div>
@@ -88,18 +144,12 @@ export function ArenaProjectPicker({ machines, shortcut, onOpen }: {
   const projects = machines.flatMap(({ machine, projects }) => machine.state === 'online'
     ? projects.map(project => ({ project, machine })) : []);
   return <DesktopPopover className="project-search-picker" triggerClassName="project-search-trigger" label="Projects"
-    width={390} placement="bottom-start" shortcutKey={shortcut ? 'k' : undefined}
+    width={390} placement="bottom-start" shortcutKey={shortcut ? 'k' : undefined} focusOnKeyboardOpen
     summary={<><span>Projects</span><ShellIcon name="chevronDown" /></>}>
-    {close => projects.length ? (
-      <div className="project-search-results" role="listbox" aria-label="Projects">
-        {projects.map(({ project, machine }) => (
-          <ListItemButton key={`${machine.id}:${project.id}`} component="button" type="button" role="option" aria-selected={false}
-            className="project-search-option" onClick={() => { close(); onOpen(project.id, machine.id); }}>
-            <span>{project.name}</span>
-            {machines.length > 1 && <small>{machine.label}</small>}
-          </ListItemButton>
-        ))}
-      </div>
-    ) : <p className="project-search-empty">No projects available.</p>}
+    {close => <ProjectSearch options={projects.map(({ project, machine }) => ({
+      key: `${machine.id}:${project.id}`, name: project.name,
+      detail: machines.length > 1 ? machine.label : undefined,
+      open: () => { close(); onOpen(project.id, machine.id); },
+    }))} />}
   </DesktopPopover>;
 }
