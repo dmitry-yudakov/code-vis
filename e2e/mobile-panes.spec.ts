@@ -1,4 +1,3 @@
-import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { CheckoutsResponse, PublicSession } from '../src/shared/types';
 
@@ -8,19 +7,23 @@ async function openWorkspace(page: Page, request: APIRequestContext, self = fals
     name: `Room for modules ${Date.now()}`, checkoutIds: [checkouts.find(item => item.name === (self ? 'installation' : 'alpha'))!.id],
   } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json() as { session: PublicSession };
-  await page.goto('/');
-  await page.locator('.project-search-trigger').click();
-  await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await sessionTab(page, session.id).click();
+  await page.goto(`/?session=${session.id}`);
   await expect(page.getByRole('textbox', { name: 'Instruction', exact: true })).toBeVisible();
   return session;
 }
 
 const views = (page: Page) => page.getByRole('navigation', { name: 'Views', exact: true });
+const more = (page: Page) => views(page).getByRole('button', { name: 'More', exact: true });
+const morePanel = (page: Page) => page.locator('.desktop-picker-paper:visible');
 const conversation = (page: Page) => page.locator('.conversation-drawer');
 const canvas = (page: Page) => page.locator('.canvas-workspace');
 const side = (page: Page) => page.locator('.repository-sidebar');
 const layouts = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('code-ai:device:v1:view-panel-layouts')!).layouts);
+
+async function selectPhoneView(page: Page, name: string | RegExp) {
+  await more(page).click();
+  await morePanel(page).getByRole('button', { name, exact: true }).click();
+}
 
 for (const theme of ['light', 'dark']) {
   test(`desktop maximizes each pane and restores the saved arrangement: ${theme}`, async ({ page, request }, testInfo) => {
@@ -78,7 +81,22 @@ for (const theme of ['light', 'dark']) {
     await expect(side(page)).toBeHidden();
     expect((await conversation(page).boundingBox())!.width).toBe(390);
     expect((await page.locator('.app-header').boundingBox())!.height).toBe(44);
-    expect((await views(page).boundingBox())!.y).toBe(795);
+    const bar = (await views(page).boundingBox())!;
+    expect(bar.y + bar.height).toBe(844);
+    const arena = views(page).getByRole('link', { name: 'Arena', exact: true });
+    const chat = views(page).getByRole('button', { name: 'Chat', exact: true });
+    await expect(arena).toBeVisible();
+    const arenaBox = (await arena.boundingBox())!;
+    expect(arenaBox.x + arenaBox.width / 2).toBe(195);
+    expect(arenaBox.width).toBeGreaterThan((await chat.boundingBox())!.width);
+    expect(arenaBox.height).toBeGreaterThan((await chat.boundingBox())!.height);
+    await expect(views(page).getByRole('button', { name: /^(Files|Repository|History)/ })).toHaveCount(0);
+    await chat.focus();
+    for (const next of [views(page).getByRole('button', { name: 'Canvas', exact: true }), arena,
+      views(page).getByRole('button', { name: 'File view', exact: true }), more(page)]) {
+      await page.keyboard.press('Tab');
+      await expect(next).toBeFocused();
+    }
     expect((await page.locator('.drawer-composer').boundingBox())!.height).toBeLessThan(170);
     await expect(input).toHaveCSS('font-size', '16px');
     expect((await input.boundingBox())!.height).toBeLessThan(40);
@@ -88,13 +106,15 @@ for (const theme of ['light', 'dark']) {
       expect(box.width).toBeGreaterThanOrEqual(40);
       expect(box.height).toBeGreaterThanOrEqual(40);
     }
-    await page.screenshot({ path: testInfo.outputPath('phone-chat.png') });
+    await chat.click();
+    await page.screenshot({ path: testInfo.outputPath('phone-chat.png'), animations: 'disabled' });
     for (const [view, label, pane] of [['Chat', 'Conversation', conversation(page)], ['Canvas', 'Canvas', canvas(page)], ['History', 'History', side(page)]] as const) {
-      await views(page).getByRole('button', { name: view, exact: true }).click();
+      if (view === 'History') await selectPhoneView(page, view);
+      else await views(page).getByRole('button', { name: view, exact: true }).click();
       await pane.getByRole('button', { name: `Maximize ${label}`, exact: true }).click();
       await expect(page.locator('.app-header')).toBeVisible();
       await expect(views(page)).toBeVisible();
-      expect(await pane.boundingBox()).toEqual({ x: 0, y: 44, width: 390, height: 751 });
+      expect(await pane.boundingBox()).toEqual({ x: 0, y: 44, width: 390, height: bar.y - 44 });
       const restore = (await pane.getByRole('button', { name: 'Restore layout', exact: true }).boundingBox())!;
       expect(restore.x).toBeGreaterThanOrEqual(0);
       expect(restore.x + restore.width).toBeLessThanOrEqual(390);
@@ -106,11 +126,24 @@ for (const theme of ['light', 'dark']) {
     await expect(input).toHaveValue('My next instruction');
     await input.fill('One\nTwo\nThree');
     expect((await input.boundingBox())!.height).toBeGreaterThan(65);
-    await views(page).getByRole('button', { name: 'More', exact: true }).click();
-    const menu = page.locator('.desktop-picker-paper:visible');
-    await expect(menu.getByRole('link', { name: 'Arena', exact: true })).toBeVisible();
+    const menu = morePanel(page);
+    const files = menu.getByRole('button', { name: 'Files', exact: true });
+    for (const key of ['Enter', 'Space']) {
+      await more(page).press(key);
+      await expect(files).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(more(page)).toBeFocused();
+    }
+    await more(page).press('ArrowDown');
+    await expect(files).toBeFocused();
+    await expect(menu.getByRole('button', { name: /^Repository/ })).toBeVisible();
+    await expect(menu.getByRole('button', { name: 'History', exact: true })).toBeVisible();
+    await expect(menu.getByRole('link', { name: 'Arena', exact: true })).toHaveCount(0);
     await expect(menu.getByRole('link', { name: /^Inbox/ })).toBeVisible();
+    await menu.screenshot({ path: testInfo.outputPath('phone-more.png'), animations: 'disabled' });
     await menu.getByRole('button', { name: 'Reports', exact: true }).click();
+    await expect(more(page)).toBeFocused();
+    await expect(more(page)).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByRole('complementary', { name: 'CodeAI reports', exact: true })).toBeVisible();
     await expect(conversation(page)).toBeHidden();
     await views(page).getByRole('button', { name: 'Chat', exact: true }).click();
@@ -119,11 +152,23 @@ for (const theme of ['light', 'dark']) {
     await expect(canvas(page)).toBeVisible();
     await expect(conversation(page)).toBeHidden();
     await expect(page.locator('.canvas-titleblock strong')).toHaveText('Sketch 1');
-    await views(page).getByRole('button', { name: 'History', exact: true }).click();
+    await selectPhoneView(page, 'History');
     await expect(side(page)).toBeVisible();
     await page.keyboard.press('r');
     await expect(page.getByRole('button', { name: 'Rectangle (R)' })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth)).toBe(true);
+
+    await page.setViewportSize({ width: 320, height: 720 });
+    const narrowArenaBox = (await arena.boundingBox())!;
+    expect(narrowArenaBox.x + narrowArenaBox.width / 2).toBe(160);
+    expect(await views(page).evaluate(node => node.scrollWidth === node.clientWidth)).toBe(true);
+    await arena.click();
+    await expect(page).toHaveURL('/arena');
+    await expect(arena).toHaveAttribute('aria-current', 'page');
+    expect(await arena.boundingBox()).toEqual(narrowArenaBox);
+    await page.goBack();
+    await views(page).getByRole('button', { name: 'Chat', exact: true }).click();
+    await expect(input).toHaveValue('One\nTwo\nThree');
   });
 }
 
@@ -177,7 +222,8 @@ test('phone approvals stay reachable while another pane is maximized', async ({ 
   await conversation(page).getByRole('button', { name: 'Send', exact: true }).click();
   await expect(conversation(page).getByRole('button', { name: 'Allow once', exact: true })).toBeVisible();
   for (const [view, label, pane] of [['Canvas', 'Canvas', canvas(page)], ['History', 'History', side(page)]] as const) {
-    await views(page).getByRole('button', { name: view, exact: true }).click();
+    if (view === 'History') await selectPhoneView(page, view);
+    else await views(page).getByRole('button', { name: view, exact: true }).click();
     await expect(views(page).getByRole('button', { name: 'Chat, 1 action waiting for your approval', exact: true })).toBeVisible();
     await pane.getByRole('button', { name: `Maximize ${label}`, exact: true }).click();
     await expect(pane.getByRole('button', { name: 'Restore layout', exact: true })).toHaveAccessibleDescription('1 action waiting for your approval');
@@ -221,7 +267,7 @@ test('phone Changes keeps long file lists and patches scrollable with Restore an
   await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: { isRepository: true, files } } }));
   await page.route('**/api/repository/diff?*', route => route.fulfill({ json: { diff: { path: 'file-29.ts', unstaged: '@@ -1 +1 @@\n' + Array.from({ length: 150 }, (_, index) => `+Patch line ${index + 1}`).join('\n') } } }));
   await openWorkspace(page, request);
-  await views(page).getByRole('button', { name: /^Repository/ }).click();
+  await selectPhoneView(page, 'Repository, 30 files');
   await side(page).getByRole('button', { name: 'Maximize Repository', exact: true }).click();
   const list = side(page).getByRole('tabpanel').locator('.repository-summary-scroll');
   expect(await list.evaluate(node => node.scrollHeight > node.clientHeight)).toBe(true);
@@ -241,7 +287,7 @@ test('phone Changes keeps long file lists and patches scrollable with Restore an
   await page.screenshot({ path: testInfo.outputPath('phone-long-diff.png') });
   await filePane.getByRole('button', { name: 'Close file changes', exact: true }).click();
   await filePane.getByRole('button', { name: 'Restore layout', exact: true }).click();
-  await views(page).getByRole('button', { name: /^Repository/ }).click();
+  await selectPhoneView(page, /^Repository/);
   await expect(list).toBeVisible();
   await expect(views(page)).toBeVisible();
 });

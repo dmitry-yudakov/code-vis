@@ -1,4 +1,4 @@
-import { sessionTab } from './session-tabs';
+import { selectWorkspaceView } from './workspace-navigation';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -19,11 +19,8 @@ async function fixture(page: Page, request: APIRequestContext) {
   expect(checkout).toBeDefined();
   const { project } = await (await request.post('/api/projects', { data: { name: path.basename(cwd), checkoutIds: [checkout.id] } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json();
-  await page.goto('/');
-  await page.locator('.project-search-trigger').click(); await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await sessionTab(page, session.id).click();
-  const toggle = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ });
-  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+  await page.goto(`/?session=${session.id}`);
+  await selectWorkspaceView(page, /^Repository/, { ensureOpen: true });
   await expect(repositoryPanel(page).getByRole('button', { name: 'Stage all', exact: true })).toBeEnabled();
   return { cwd, git, checkoutId: checkout.id };
 }

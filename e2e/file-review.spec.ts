@@ -1,4 +1,4 @@
-import { sessionTab } from './session-tabs';
+import { selectWorkspaceView } from './workspace-navigation';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { CheckoutsResponse } from '../src/shared/types';
 
@@ -31,13 +31,10 @@ async function openReview(page: Page, request: APIRequestContext) {
     name: `File review ${Date.now()}`, checkoutIds: [checkouts.find(item => item.name === 'alpha')!.id],
   } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json();
-  await page.goto('/');
-  await page.locator('.project-search-trigger').click();
-  await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await sessionTab(page, session.id).click();
+  await page.goto(`/?session=${session.id}`);
   const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
   await input.fill('Keep this review draft');
-  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
+  await selectWorkspaceView(page, /^Repository/);
   await page.locator('.repository-file').filter({ hasText: 'review.md' }).click();
   await expect(page.getByLabel('Unified diff').last()).toContainText('Changed line 120');
   return input;

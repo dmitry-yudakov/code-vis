@@ -96,7 +96,7 @@ import { LIGHT_THEMES, type LightThemeName } from '@/shared/design/tokens';
 import { usePanelLayout } from './usePanelLayout';
 import { ActivityBar, ARENA_SHORTCUT_HINT } from './ActivityBar';
 import { ShellIcon } from './ShellIcon';
-import { LayoutToggles } from './LayoutToggles';
+import { FileViewToggle, LayoutToggles } from './LayoutToggles';
 import { useWorkspaceViews } from './useWorkspaceViews';
 import { parseWorkspaceLocation, workspaceHref, type WorkspaceTarget } from './workspaceLocation';
 import { useDevicePreferences } from './useDevicePreferences';
@@ -3293,13 +3293,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         <ActivityBar
           compact={compact}
           workspace={compact && !arenaOpen && session ? <LayoutToggles compact
-            filesShown={panelLayout.filesShown} onToggleFiles={panelLayout.toggleFiles}
             canvasShown={!panelLayout.canvasHidden} canvasToggleable
             conversationShown={panelLayout.conversationShown}
             approvals={permissions.length} unread={unread}
             onToggleCanvas={panelLayout.showCanvas} onToggleConversation={panelLayout.openConversation}
           /> : undefined}
-          views={!arenaOpen && session ? ['files', 'changes', 'history', ...(!compact && reportsOffered ? ['reports' as const] : [])] : !arenaOpen && projectWorkspace ? ['files', 'changes'] : []}
+          fileView={compact && !arenaOpen && session ? <FileViewToggle compact
+            shown={panelLayout.filesShown} onToggle={panelLayout.toggleFiles} /> : undefined}
+          views={!arenaOpen && session ? ['files', 'changes', 'history', ...(reportsOffered ? ['reports' as const] : [])] : !arenaOpen && projectWorkspace ? ['files', 'changes'] : []}
           shownView={panelLayout.sideShown ? sideView : undefined}
           changeCount={repositoryTree?.files.length}
           arenaSection={arenaSection}
@@ -3308,15 +3309,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           updateCount={availableProviderUpdateCount}
           moreRef={moreMenuRef}
           onMoreToggle={(open) => { if (open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
-          onToggleView={(view) => panelLayout.toggleSide(view, sideView)}
+          onToggleView={(view) => compact && view === 'reports' ? panelLayout.selectSideTab(view) : panelLayout.toggleSide(view, sideView)}
           more={<>
             <Button onClick={() => { moreMenuRef.current?.close(); setObserverOpen(true); }}>Observer</Button>
             {compact && <>
-              {!arenaOpen && session && <>
-                <Button component={Link} href={ARENA_SECTION_PATHS.sessions} {...arenaShortcutHint} onClick={() => moreMenuRef.current?.close()}>Arena</Button>
-                <Button component={Link} href="/arena/inbox" onClick={() => moreMenuRef.current?.close()}>Inbox{arenaUnread.length ? ` · ${arenaUnread.length} unread` : ''}</Button>
-                {reportsOffered && <Button onClick={() => { moreMenuRef.current?.close(); panelLayout.selectSideTab('reports'); }}>Reports</Button>}
-              </>}
               <DeviceMenu />
               {providerHealth && (!providerHealth.available || providerHealth.message) && <p>{providerHealth.message || 'Provider setup needed'}</p>}
             </>}

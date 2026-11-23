@@ -37,9 +37,13 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
     await open.hover();
     await page.screenshot({ path: testInfo.outputPath('inbox.png'), animations: 'disabled' });
     // Padding belongs to the same action as the title and status badge.
+    const expectSessionOpened = async () => {
+      await expect(page).toHaveURL(new RegExp(`[?&]session=${session.id}(?:&|$)`));
+      if (width === 360) await expect(page.getByRole('button', { name: 'Session', exact: true })).toBeVisible();
+      else await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
+    };
     await open.click({ position: { x: 8, y: 8 } });
-    await expect(page).toHaveURL(/\/\?(?:session|project)=/);
-    await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
+    await expectSessionOpened();
     const openInbox = async () => {
       const views = page.getByRole('navigation', { name: 'Views', exact: true });
       if (width === 360) await views.getByRole('button', { name: /^More/ }).click();
@@ -52,8 +56,7 @@ for (const [appearance, width] of [['light', 1440], ['dark', 360]] as const) {
     for (const key of ['Enter', 'Space']) {
       await open.focus();
       await page.keyboard.press(key);
-      await expect(page).toHaveURL(/\/\?(?:session|project)=/);
-      await expect(sessionTab(page, session.id)).toHaveAttribute('aria-selected', 'true');
+      await expectSessionOpened();
       await openInbox();
     }
     await page.unrouteAll({ behavior: 'wait' });

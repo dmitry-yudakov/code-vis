@@ -1,4 +1,4 @@
-import { sessionTab } from './session-tabs';
+import { selectWorkspaceView } from './workspace-navigation';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -20,12 +20,8 @@ async function openRepository(page: Page, request: APIRequestContext, checkoutId
   checkoutId ||= checkouts.find(item => item.name === 'alpha')!.id;
   const { project } = await (await request.post('/api/projects', { data: { name: `Branches ${Date.now()}`, checkoutIds: [checkoutId] } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json();
-  await page.goto('/');
-  await page.locator('.project-search-trigger').click();
-  await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await sessionTab(page, session.id).click();
-  const toggle = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ });
-  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+  await page.goto(`/?session=${session.id}`);
+  await selectWorkspaceView(page, /^Repository/, { ensureOpen: true });
   await expect(picker(page)).toBeEnabled();
   return checkoutId;
 }

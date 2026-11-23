@@ -1,4 +1,5 @@
 import { sessionTab } from './session-tabs';
+import { selectWorkspaceView } from './workspace-navigation';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -28,7 +29,7 @@ async function openConversation(page: Page, request: APIRequestContext, count = 
   user.turn.history = 'saved';
   const reply: AssistantMessage = { id: crypto.randomUUID(), role: 'assistant', authorId: session.primaryAgentId,
     createdAt: session.createdAt, status: 'complete', rawMarkdown: text, blocks: [{ kind: 'markdown', markdown: text }] };
-  const filename = path.resolve('test-results/server-data/session-store-v2/sessions', `${session.id}.json`);
+  const filename = path.resolve(process.env.CODEAI_E2E_DATA_DIR ?? 'test-results/server-data', 'session-store-v2/sessions', `${session.id}.json`);
   const stored = JSON.parse(await readFile(filename, 'utf8')) as DurableSession;
   stored.version = 13;
   if (docker) stored.execution = 'docker';
@@ -167,8 +168,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     expect(page.url()).toBe(initialUrl);
     await expect(page.getByRole('link', { name: 'External', exact: true })).toHaveAttribute('target', '_blank');
     await expect(page.getByRole('link', { name: 'Unsafe', exact: true })).toHaveCount(0);
-    const toggle = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'Files', exact: true });
-    await toggle.click();
+    await selectWorkspaceView(page, 'Files');
     const files = page.getByRole('list', { name: 'Repository files', exact: true });
     const docs = files.getByRole('button', { name: 'docs', exact: true });
     await docs.click();
@@ -177,7 +177,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await files.getByRole('button', { name: 'file-links.md', exact: true }).click();
     await expect(activeFile(page).getByRole('heading', { name: 'File links', exact: true })).toBeVisible();
     await expect(tabs(page).getByRole('tab')).toHaveCount(3);
-    if (width === 390) await toggle.click();
+    if (width === 390) await selectWorkspaceView(page, 'Files');
     await docs.click();
     await expect(files.getByRole('button', { name: 'details.md', exact: true })).toHaveCount(0);
     await expect(files.getByRole('button', { name: 'package.json', exact: true })).toBeVisible();
@@ -309,23 +309,23 @@ for (const width of [1440, 390]) {
     const { project: other } = await (await request.post('/api/projects', { data: {
       name: `Other file workspace ${Date.now()}`, checkoutIds: session.repositories.map(item => item.checkoutId),
     } })).json();
-    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.getByRole('link', { name: `Open project ${other.name}`, exact: true }).click();
     await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
     await expect(pane(page)).toBeHidden();
-    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.locator(`a[href="/?session=${session.id}"]`).click();
     await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeInViewport();
     await expect(pane(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
     // The project's session-free view must not borrow the conversation's tabs or maximize state.
-    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.locator(`a[href="/?project=${session.projectId}"]`).click();
     await expect(page.getByRole('complementary', { name: 'Files', exact: true })).toBeVisible();
     await expect(pane(page)).toBeHidden();
-    await sessionTab(page, session.id).click();
+    if (width === 390) {
+      await page.getByRole('button', { name: 'Session', exact: true }).click();
+      await page.getByRole('option', { name: session.title, exact: true }).click();
+    } else await sessionTab(page, session.id).click();
     await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeInViewport();
     await expect(pane(page).getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
     await page.keyboard.press('Escape');

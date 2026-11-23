@@ -42,7 +42,6 @@ for (const [appearance, width] of [['light', 1440], ['dark', 1440], ['light', 39
     const { sessions } = await (await request.get(`/api/sessions?projectId=${created.id}`)).json() as { sessions: PublicSession[] };
     expect(sessions).toHaveLength(1);
     expect(sessions[0].repositories.map(item => item.checkoutId)).toEqual([checkout.id]);
-    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^More/ }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await expect(group.locator('.arena-card')).toHaveCount(1);
     expect(await arena.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);

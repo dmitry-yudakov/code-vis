@@ -1,4 +1,3 @@
-import { sessionTab } from './session-tabs';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { CheckoutsResponse, PublicSession } from '../src/shared/types';
 
@@ -13,10 +12,8 @@ async function openWorkspace(page: Page, request: APIRequestContext, withSession
     expect(response.status()).toBe(201);
     session = (await response.json()).session;
   }
-  await page.goto('/');
-  await page.locator('.project-search-trigger').click();
-  await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  if (session) await sessionTab(page, session.id).click();
+  if (session) await page.goto(`/?session=${session.id}`);
+  else await page.goto(`/?project=${project.id}`);
   return session;
 }
 

@@ -1,4 +1,5 @@
 import { sessionTab, selectedSessionId } from './session-tabs';
+import { selectWorkspaceView } from './workspace-navigation';
 import { expect, test } from '@playwright/test';
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
 
@@ -1940,11 +1941,11 @@ test('picks side-panel views from the activity bar, leaves focus, and reaches th
 
   // The header keeps identity and readiness; views, the Arena, and More moved to the bar.
   const header = page.locator('.app-header');
-  await expect(header.getByRole('link')).toHaveCount(0);
+  await expect(header.getByRole('link', { name: /^(Arena|Inbox)$/ })).toHaveCount(0);
   await expect(header.getByRole('button', { name: /^(Repository|Arena|Inbox)/ })).toHaveCount(0);
   await expect(header.locator('details:not(.new-session-menu, .device-menu, .session-advanced-settings)')).toHaveCount(0);
   const bar = activityBar(page);
-  await expect(bar.locator(':scope > :is(button, a), .more-menu > button')).toHaveCount(5);
+  await expect(bar.locator(':scope > :is(button, a), .more-menu > button')).toHaveCount(6);
   await expect(activityView(page, 'Repository')).toHaveAccessibleName('Repository, 2 files');
   await expect(activityView(page, 'Repository').locator('.activity-badge')).toHaveText('2');
   await showCanvas(page);
@@ -2221,7 +2222,7 @@ test('docks only the panels that fit the live shell width', async ({ page, reque
   await expect(conversation).toBeVisible();
   await expect(conversation).toHaveCSS('width', '600px');
   await expect(page.getByRole('separator', { name: 'Resize conversation panel' })).toHaveCount(0);
-  await activityView(page, 'Repository').click();
+  await selectWorkspaceView(page, /^Repository/);
   await expect(repository).toBeVisible();
   await expect(conversation).toBeHidden();
   await expect(repository).toHaveCSS('width', '600px');

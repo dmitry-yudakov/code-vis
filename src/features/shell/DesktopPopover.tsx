@@ -12,13 +12,14 @@ import { hasVisibleKeyboardOverlay } from './keyboardOverlays';
 export interface DesktopPopoverHandle { close(): void; trigger: HTMLButtonElement | null }
 
 export function DesktopPopover({ className, label, summary, disabled = false, color = 'inherit', placement = 'top-start', anchorSelector,
-  control, onOpenChange, triggerClassName, description, shortcutKey, icon = false, width = 320, keepMounted = false, group, children }: {
+  control, onOpenChange, triggerClassName, description, shortcutKey, icon = false, width = 320, keepMounted = false,
+  focusOnKeyboardOpen = false, group, children }: {
   className: string;
   label: string;
   summary: ReactNode;
   disabled?: boolean;
   color?: 'primary' | 'warning' | 'error' | 'inherit';
-  placement?: 'top-start' | 'bottom-start' | 'bottom-end' | 'right-end';
+  placement?: 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end' | 'right-end';
   anchorSelector?: string;
   control?: RefObject<DesktopPopoverHandle | null>;
   onOpenChange?(open: boolean): void;
@@ -28,6 +29,7 @@ export function DesktopPopover({ className, label, summary, disabled = false, co
   icon?: boolean;
   width?: number;
   keepMounted?: boolean;
+  focusOnKeyboardOpen?: boolean;
   group?: string;
   children(close: () => void): ReactNode;
 }) {
@@ -105,7 +107,11 @@ export function DesktopPopover({ className, label, summary, disabled = false, co
             else { open(event.currentTarget); requestAnimationFrame(() => focusItem(event.key === 'ArrowUp')); }
           }
     },
-    onClick: (event: React.MouseEvent<HTMLButtonElement>) => { if (anchor) setAnchor(null); else open(event.currentTarget); },
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (anchor) { setAnchor(null); return; }
+      open(event.currentTarget);
+      if (focusOnKeyboardOpen && event.detail === 0) requestAnimationFrame(() => focusItem(false));
+    },
   };
   return <ClickAwayListener mouseEvent="onPointerDown" touchEvent="onTouchStart" onClickAway={() => setAnchor(null)}>
     <div className={className}>

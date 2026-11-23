@@ -74,7 +74,6 @@ for (const arrangement of ['List', 'Tiles', 'Phone'] as const) {
     await expect(page.getByRole('main', { name: 'Arena', exact: true })).toHaveCount(0);
     owner.sessions[1].updatedAt = '2026-11-08T14:00:00.000Z';
     await pushArenaSnapshot(page);
-    if (arrangement === 'Phone') await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^More/ }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await expect(groupNames(page)).toHaveText(['Beta', 'Alpha', 'Empty']);
     expect(await alphaOrder()).toEqual(['Open Alpha newer', 'Open Alpha older']);

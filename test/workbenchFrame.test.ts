@@ -70,7 +70,8 @@ describe('activity bar', () => {
     expect(controlNames(markup)).toEqual(['Repository, 10000 files', 'History', 'Arena', 'Inbox, 999 unread', 'More']);
     expect(markup).toMatch(/<span class="activity-badge"[^>]*>99\+<\/span>/);
     expect(markup).toMatch(/<span class="activity-badge attention"[^>]*>99\+<\/span>/);
-    expect(markup).toMatch(/<span class="activity-badge updates" aria-label="123 Docker agent updates available">99\+<\/span>/);
+    expect(markup).toContain('aria-description="123 Docker agent updates available"');
+    expect(markup).toMatch(/<span class="activity-badge updates" aria-hidden="true">99\+<\/span>/);
   });
 
   it('marks the Arena section that is open', () => {
@@ -85,12 +86,14 @@ describe('activity bar', () => {
     expect(activityBar()).not.toContain('Export session');
   });
 
-  it('uses the narrow workspace controls and moves global navigation into More', () => {
+  it('keeps Arena on the compact session bar and puts side views and Inbox in More', () => {
     const markup = activityBar({ compact: true, workspace: createElement('button', null, 'Chat') });
     expect(markup).toContain('Chat');
-    expect(markup).not.toContain('href="/arena"');
+    expect(markup).toContain('href="/arena"');
     expect(markup).not.toContain('href="/arena/inbox"');
-    expect(controlNames(markup)).toEqual(['Repository', 'History', 'More']);
+    expect(controlNames(markup)).toEqual(['Arena', 'More']);
+    expect(controlNames(activityBar({ compact: true, views: ['files', 'changes'] })))
+      .toEqual(['Files', 'Inbox', 'Arena', 'More']);
   });
 
   it('prioritizes Inbox attention on compact More without overlapping an update badge', () => {

@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { selectWorkspaceView } from './workspace-navigation';
 import type { CheckoutsResponse } from '../src/shared/types';
 
 const documentPath = 'docs/file-links.md';
@@ -29,8 +30,7 @@ async function openDocument(page: Page, request: APIRequestContext, text: () => 
   } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json();
   await page.goto(`/?session=${session.id}`);
-  const filesButton = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'Files', exact: true });
-  if (await filesButton.getAttribute('aria-pressed') !== 'true') await filesButton.click();
+  await selectWorkspaceView(page, 'Files', { ensureOpen: true });
   const files = page.getByRole('list', { name: 'Repository files', exact: true });
   await files.getByRole('button', { name: 'docs', exact: true }).click();
   await files.getByRole('button', { name: 'file-links.md', exact: true }).click();
@@ -75,7 +75,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
         await expect(activeFile(page).getByLabel('File source')).toHaveText(markdown);
         await activeFile(page).getByRole('button', { name: 'Preview', exact: true }).click();
         await expect(preview(page).getByRole('img', { name: 'Mermaid diagram', exact: true })).toHaveCount(2);
-        await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
+        await selectWorkspaceView(page, /^Repository/);
         await page.locator('.repository-file').filter({ hasText: 'file-links.md' }).click();
         await activeFile(page).getByRole('button', { name: 'Preview', exact: true }).click();
       }

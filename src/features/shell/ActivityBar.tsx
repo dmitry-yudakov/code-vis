@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import Button from '@mui/material/Button';
+import Divider from '@mui/material/Divider';
 import IconButton from '@mui/material/IconButton';
 import { DesktopPopover, type DesktopPopoverHandle } from './DesktopPopover';
 import type { ReactNode, RefObject } from 'react';
@@ -12,15 +14,13 @@ const VIEW_LABELS: Record<SideTab, string> = { files: 'Files', changes: 'Reposit
 
 export const ARENA_SHORTCUT_HINT = { title: 'Arena · Ctrl/Cmd+J', 'aria-keyshortcuts': 'Control+J Meta+J' };
 
-/**
- * The column of views beside the side panel. The session's views toggle the side panel; the Arena
- * and the Inbox are pages of their own until they become side-panel views (Story 75). Global
- * navigation stays together at the bottom, ending with More as a gear.
- */
-export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, arenaShortcutHint, unread, updateCount = 0, more, moreRef, onMoreToggle, onToggleView, compact = false, workspace }: {
+/** The desktop rail and compact bottom navigation for workspace views and global destinations. */
+export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, arenaShortcutHint, unread, updateCount = 0, more, moreRef, onMoreToggle, onToggleView, compact = false, workspace, fileView }: {
   compact?: boolean;
+  /** The compact session's Chat and Canvas controls. */
   workspace?: ReactNode;
-  /** Empty where no session is shown: the Arena page and the welcome screen. */
+  fileView?: ReactNode;
+  /** Empty on the Arena and welcome pages. */
   views: readonly SideTab[];
   shownView?: SideTab;
   changeCount?: number;
@@ -36,20 +36,40 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, a
   const updateDescription = updateCount > 0
     ? `${updateCount} Docker agent update${updateCount === 1 ? '' : 's'} available`
     : undefined;
-  const inboxCount = compact && workspace ? unread : 0;
-  const moreDescription = [updateDescription, inboxCount ? `Inbox, ${inboxCount} unread` : undefined].filter(Boolean).join('. ') || undefined;
+  const inboxInMore = compact && Boolean(workspace);
+  const inboxCount = inboxInMore ? unread : 0;
+  const inboxLabel = unread ? `Inbox, ${unread} unread` : 'Inbox';
+  const moreDescription = [updateDescription, inboxCount ? inboxLabel : undefined].filter(Boolean).join('. ') || undefined;
+  const railViews = compact ? views.filter(view => !workspace && view === 'files') : views;
+  const moreViews = compact ? views.filter(view => !railViews.includes(view)) : [];
+  const viewLabel = (view: SideTab) => view === 'changes' && changeCount > 0
+    ? `${VIEW_LABELS[view]}, ${changeCount} ${changeCount === 1 ? 'file' : 'files'}` : VIEW_LABELS[view];
+  const inboxLink = (
+    <IconButton component={Link}
+      href={ARENA_SECTION_PATHS.inbox}
+      scroll={false}
+      className="activity-item activity-inbox"
+      aria-label={inboxLabel}
+      aria-current={arenaSection === 'inbox' ? 'page' : undefined}
+      title="Inbox"
+    >
+      <ShellIcon name="inbox" />
+      {compact && <span className="activity-label">Inbox</span>}
+      {unread > 0 && <span className="activity-badge attention" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
+    </IconButton>
+  );
 
   return (
     <nav className="activity-bar" aria-label="Views">
       {workspace}
-      {views.map((view) => {
+      {railViews.map((view) => {
         const count = view === 'changes' ? changeCount : 0;
         return (
           <IconButton
             key={view}
             type="button"
             className="activity-item"
-            aria-label={count ? `${VIEW_LABELS[view]}, ${count} ${count === 1 ? 'file' : 'files'}` : VIEW_LABELS[view]}
+            aria-label={viewLabel(view)}
             aria-pressed={shownView === view}
             title={VIEW_LABELS[view]}
             onClick={() => onToggleView(view)}
@@ -61,33 +81,33 @@ export function ActivityBar({ views, shownView, changeCount = 0, arenaSection, a
         );
       })}
       <span className="activity-divider" aria-hidden="true" />
-      {(!compact || !workspace) && <>
+      {compact && !inboxInMore && inboxLink}
       <IconButton component={Link}
         href={ARENA_SECTION_PATHS.sessions}
         scroll={false}
-        className="activity-item"
+        className="activity-item activity-arena"
         aria-label="Arena"
         aria-current={arenaSection === 'sessions' ? 'page' : undefined}
         title="Arena"
         {...arenaShortcutHint}
       ><ShellIcon name="arena" />{compact && <span className="activity-label">Arena</span>}</IconButton>
-      <IconButton component={Link}
-        href={ARENA_SECTION_PATHS.inbox}
-        scroll={false}
-        className="activity-item"
-        aria-label={unread ? `Inbox, ${unread} unread` : 'Inbox'}
-        aria-current={arenaSection === 'inbox' ? 'page' : undefined}
-        title="Inbox"
-      >
-        <ShellIcon name="inbox" />
-        {compact && <span className="activity-label">Inbox</span>}
-        {unread > 0 && <span className="activity-badge attention" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
-      </IconButton>
-      </>}
+      {!compact && inboxLink}
+      {fileView}
       <DesktopPopover control={moreRef} className="more-menu" label="More" description={moreDescription}
-        icon width={240} placement={compact ? 'top-start' : 'right-end'} onOpenChange={onMoreToggle}
-        summary={<><ShellIcon name="more" />{compact && <span className="activity-label">More</span>}{updateDescription && !inboxCount && <span className="activity-badge updates" aria-label={updateDescription}>{updateCount > 99 ? '99+' : updateCount}</span>}{inboxCount > 0 && <span className="activity-badge attention" aria-label={`Inbox, ${inboxCount} unread`}>{inboxCount > 99 ? '99+' : inboxCount}</span>}</>}>
-        {() => <div className="desktop-more-content">{more}</div>}
+        icon width={240} placement={compact ? 'top-end' : 'right-end'} focusOnKeyboardOpen={compact} onOpenChange={onMoreToggle}
+        summary={<><ShellIcon name={compact ? 'ellipsis' : 'more'} />{compact && <span className="activity-label">More</span>}{updateDescription && !inboxCount && <span className="activity-badge updates" aria-hidden="true">{updateCount > 99 ? '99+' : updateCount}</span>}{inboxCount > 0 && <span className="activity-badge attention" aria-hidden="true">{inboxCount > 99 ? '99+' : inboxCount}</span>}</>}>
+        {close => <div className="desktop-more-content">
+          {moreViews.map(view => (
+            <Button key={view} className="activity-more-item" color="inherit" startIcon={<ShellIcon name={view} />}
+              aria-pressed={shownView === view} onClick={() => { close(); onToggleView(view); }}>
+              {viewLabel(view)}
+            </Button>
+          ))}
+          {inboxInMore && <Button component={Link} href={ARENA_SECTION_PATHS.inbox} scroll={false}
+            className="activity-more-item" color="inherit" startIcon={<ShellIcon name="inbox" />} onClick={close}>{inboxLabel}</Button>}
+          {(moreViews.length > 0 || inboxInMore) && <Divider />}
+          {more}
+        </div>}
       </DesktopPopover>
     </nav>
   );

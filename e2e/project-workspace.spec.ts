@@ -1,4 +1,5 @@
 import { expect, test, fulfillArenaSnapshot, type APIRequestContext } from './arena-stream';
+import { selectWorkspaceView } from './workspace-navigation';
 import type { ArenaSnapshot, CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 async function projectFixture(request: APIRequestContext, repositories = 2) {
@@ -61,7 +62,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await expect.poll(async () => { const box = (await filePane.boundingBox())!; return Math.round(box.x + box.width); }).toBe(width > 740 ? width - 4 : width);
     await page.screenshot({ path: testInfo.outputPath('project-file.png') });
     await filePane.getByRole('button', { name: 'Hide file view', exact: true }).click();
-    await views.getByRole('button', { name: /^Repository(?:,|$)/ }).click();
+    await selectWorkspaceView(page, /^Repository(?:,|$)/);
     const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
     await repository.locator('.repository-file').filter({ hasText: 'package.json' }).click();
     await expect(filePane.getByLabel('Unified diff').last()).toContainText('+new project');
@@ -131,8 +132,7 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) for (con
     } } }));
     await page.goto('/arena');
     await page.getByRole('link', { name: `Open project ${project.name}`, exact: true }).click();
-    if (entry === 'Repository') await page.getByRole('navigation', { name: 'Views', exact: true })
-      .getByRole('button', { name: 'Repository', exact: true }).click();
+    if (entry === 'Repository') await selectWorkspaceView(page, 'Repository');
     const manager = page.getByRole('region', { name: 'Project repositories', exact: true });
     await expect(manager).toBeVisible();
     await manager.getByRole('combobox', { name: 'Repository to add', exact: true }).selectOption(checkouts[0].id);
@@ -381,7 +381,6 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await files.getByRole('button', { name: 'file-links.md', exact: true }).click();
     await expect(filePane.getByRole('heading', { name: 'File links', exact: true })).toBeVisible();
     await filePane.getByRole('button', { name: 'Maximize File view', exact: true }).click();
-    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.getByRole('link', { name: `Open project ${second.project.name}`, exact: true }).click();
     await expect(page).toHaveURL(`/?project=${second.project.id}`);
@@ -391,7 +390,6 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await files.getByRole('button', { name: 'package.json', exact: true }).click();
     await expect(filePane.getByLabel('File source', { exact: true })).toContainText('alpha');
     await filePane.getByRole('button', { name: 'Maximize File view', exact: true }).click();
-    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.getByRole('link', { name: `Open project ${first.project.name}`, exact: true }).click();
     await expect(filePane.getByRole('heading', { name: 'File links', exact: true })).toBeVisible();
@@ -399,7 +397,6 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await expect(filePane.getByRole('tab', { name: 'file-links.md', exact: true })).toHaveAttribute('aria-selected', 'true');
     await expect(filePane.getByRole('button', { name: 'Restore layout', exact: true })).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('restored-project-document.png') });
-    if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('link', { name: 'Arena', exact: true }).click();
     await page.getByRole('link', { name: `Open project ${second.project.name}`, exact: true }).click();
     await expect(filePane.getByLabel('File source', { exact: true })).toContainText('alpha');

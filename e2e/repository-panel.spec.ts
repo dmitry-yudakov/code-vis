@@ -1,4 +1,4 @@
-import { sessionTab } from './session-tabs';
+import { selectWorkspaceView } from './workspace-navigation';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { CheckoutsResponse, GitHistory, PublicSession } from '../src/shared/types';
 
@@ -20,12 +20,8 @@ async function openRepository(page: Page, request: APIRequestContext, count = 1)
     name: `Repository panel ${Date.now()}`, checkoutIds: ids.slice(0, count),
   } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json() as { session: PublicSession };
-  await page.goto('/');
-  await page.locator('.project-search-trigger').click();
-  await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await sessionTab(page, session.id).click();
-  const toggle = page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ });
-  if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
+  await page.goto(`/?session=${session.id}`);
+  await selectWorkspaceView(page, /^Repository/, { ensureOpen: true });
   await expect(panel(page).getByRole('button', { name: 'Refresh Git status', exact: true })).toBeEnabled();
   return { ids, session };
 }

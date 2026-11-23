@@ -76,7 +76,6 @@ for (const width of [1280, 390]) test(`global setup changes project without open
   const source = (await (await request.post('/api/sessions', { data: { projectId: projects[0].id, provider: 'claude' } })).json()).session as PublicSession;
   await page.goto(`/?session=${source.id}`);
   await expect(page.locator('.project-search-trigger')).toContainText(projects[0].name);
-  if (width === 390) await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^More/ }).click();
   await page.getByRole('link', { name: 'Arena', exact: true }).click();
   await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });

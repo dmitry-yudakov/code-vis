@@ -1,4 +1,5 @@
 import { sessionTab } from './session-tabs';
+import { selectWorkspaceView } from './workspace-navigation';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import type { CheckoutsResponse, GitWorkingTree, PublicSession } from '../src/shared/types';
 
@@ -109,11 +110,8 @@ test('fits a phone beside a long branch name', async ({ page, request }, testInf
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
   const { project } = await (await request.post('/api/projects', { data: { name: `Push phone ${Date.now()}`, checkoutIds: [checkouts.find(item => item.name === 'alpha')!.id] } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json() as { session: PublicSession };
-  await page.goto('/');
-  await page.locator('.project-search-trigger').click();
-  await page.getByRole('option', { name: new RegExp(project.name) }).click();
-  await sessionTab(page, session.id).click();
-  await page.getByRole('navigation', { name: 'Views', exact: true }).getByRole('button', { name: /^Repository/ }).click();
+  await page.goto(`/?session=${session.id}`);
+  await selectWorkspaceView(page, /^Repository/);
   const summary = page.locator('.git-branch-summary');
   const button = summary.getByRole('button', { name: /^Push 12 commits/ });
   await expect(button).toBeVisible();

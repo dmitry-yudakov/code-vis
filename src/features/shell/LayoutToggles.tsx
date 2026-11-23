@@ -3,6 +3,11 @@
 import IconButton from '@mui/material/IconButton';
 import { ShellIcon } from './ShellIcon';
 
+export function FileViewToggle({ shown, onToggle, compact = false }: { shown: boolean; onToggle(): void; compact?: boolean }) {
+  return <IconButton type="button" className="layout-toggle" aria-label="File view" aria-pressed={shown}
+    title={shown ? 'Hide file view' : 'Show file view'} onClick={onToggle}><ShellIcon name="file" />{compact && <span className="activity-label">View</span>}</IconButton>;
+}
+
 /**
  * The header's layout icons. The activity bar owns the side panel, so these show and hide the canvas
  * and the conversation. A closed conversation carries what it holds: approvals first, else unread
@@ -38,8 +43,7 @@ export function LayoutToggles({ filesShown = false, onToggleFiles, canvasShown, 
   );
   return (
     <div className="layout-toggles" role="group" aria-label="Layout">
-      {onToggleFiles && <IconButton type="button" className="layout-toggle" aria-label="File view" aria-pressed={filesShown}
-        title={filesShown ? 'Hide file view' : 'Show file view'} onClick={onToggleFiles}><ShellIcon name="file" />{compact && <span className="activity-label">View</span>}</IconButton>}
+      {onToggleFiles && <FileViewToggle shown={filesShown} onToggle={onToggleFiles} compact={compact} />}
       {!compact && canvas}
       <IconButton
         type="button"
