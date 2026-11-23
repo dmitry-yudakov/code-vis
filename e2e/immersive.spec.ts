@@ -2813,6 +2813,7 @@ test('VR launcher captures the selected remote project and mode and preserves ch
 
 test('VR setup restores Auto and offers it alongside Ask, Plan, and Agent', async ({ page }) => {
   await installAdapter(page);
+  await page.addInitScript(() => localStorage.setItem('code-ai:theme', 'light'));
   const fixture = await workspaceFixture(page, true);
   const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
   home.providers.claude.supportedModes = ['ask', 'plan', 'agent', 'auto'];
@@ -2830,15 +2831,18 @@ test('VR setup restores Auto and offers it alongside Ask, Plan, and Agent', asyn
   const paintedLogo = (name: string) => page.evaluate(name => {
     const mesh = window.xrScene?.scene.getObjectByName(name) as Mesh | undefined;
     const canvas = (mesh?.material as import('three').MeshBasicMaterial | undefined)?.map?.image as HTMLCanvasElement | undefined;
-    const pixel = canvas?.getContext('2d')?.getImageData(39, 40, 1, 1).data;
-    if (!pixel?.[3]) return undefined;
-    return pixel[0] > pixel[2] ? 'orange' : pixel[2] > pixel[0] ? 'blue' : undefined;
+    // Sample the icon area to the left of the label, including the spaces in the mark.
+    const pixels = canvas?.getContext('2d')?.getImageData(27, 27, 26, 26).data;
+    if (!pixels) return undefined;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + 3] === 255) return Array.from(pixels.slice(i, i + 3));
+    }
   }, name);
-  await expect.poll(() => paintedLogo('Claude')).toBe('orange');
+  await expect.poll(() => paintedLogo('Claude')).toEqual([217, 119, 87]);
   await setupAction(page, 'provider');
-  await expect.poll(() => paintedLogo('Codex')).toBe('blue');
+  await expect.poll(() => paintedLogo('Codex')).toEqual([0, 0, 0]);
   await setupAction(page, 'provider');
-  await expect.poll(() => paintedLogo('Claude')).toBe('orange');
+  await expect.poll(() => paintedLogo('Claude')).toEqual([217, 119, 87]);
   for (const mode of ['ask', 'plan', 'agent', 'auto']) {
     await setupAction(page, 'mode');
     await expect.poll(() => setupDetails(page)).toContain(`Mode: ${mode}`);

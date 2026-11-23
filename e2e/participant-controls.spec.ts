@@ -54,6 +54,8 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     for (const provider of ['claude', 'codex']) {
       await expect(providers.locator(`[data-provider-logo="${provider}"][aria-hidden="true"]`)).toBeVisible();
     }
+    await expect(providers.locator('[data-provider-logo="codex"] path'))
+      .toHaveCSS('fill', theme === 'dark' ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)');
     await page.screenshot({ path: testInfo.outputPath('participants.png'), animations: 'disabled' });
     const box = (await menu.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
@@ -166,6 +168,7 @@ test('available providers can be switched with the keyboard and keep the chosen 
   await codex.focus();
   await page.keyboard.press('Enter');
   await expect(codex).toHaveAttribute('aria-pressed', 'true');
+  await expect(codex.locator('[data-provider-logo="codex"] path')).toHaveCSS('fill', 'rgb(255, 255, 255)');
   await panel(page).screenshot({ path: testInfo.outputPath('codex-selected.png'), animations: 'disabled' });
   await addParticipant.press('Space');
   await expect(addParticipant).toHaveAttribute('aria-expanded', 'false');

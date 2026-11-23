@@ -1,7 +1,7 @@
 import type { ImmersiveTexturePanel } from '@/features/diagram/spatial/immersiveResources';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { AgentProvider } from '@/shared/types';
-import { CLAUDE_LOGO_COLOR, CODEX_LOGO_STOPS, PROVIDER_LOGO_PATHS } from '@/features/agents/providerLogos';
+import { CLAUDE_LOGO_COLOR, PROVIDER_LOGO_PATHS } from '@/features/agents/providerLogos';
 import { texturePanel } from '@/features/diagram/spatial/immersiveResources';
 import type { SpatialResourceLedger } from '@/features/diagram/spatial/resourceLedger';
 import {
@@ -64,13 +64,7 @@ function createWorkspaceLabel(label: string, theme: ThemeName, ledger: SpatialRe
   if (provider) {
     context.translate((canvas.width - Math.min(labelWidth, maxTextWidth) - logoSpace) / 2, (canvas.height - logoSize) / 2);
     context.scale(logoSize / 24, logoSize / 24);
-    if (provider === 'codex') {
-      const gradient = context.createLinearGradient(0, 0, 0, 24);
-      for (const [offset, color] of CODEX_LOGO_STOPS) gradient.addColorStop(offset, color);
-      context.fillStyle = gradient;
-    } else {
-      context.fillStyle = CLAUDE_LOGO_COLOR;
-    }
+    context.fillStyle = provider === 'claude' ? CLAUDE_LOGO_COLOR : theme === 'dark' ? '#FFFFFF' : '#000000';
     context.fill(new Path2D(PROVIDER_LOGO_PATHS[provider]), 'evenodd');
   }
   const resource = texturePanel(canvas, [canvas.width / pixelsPerMeter, IMMERSIVE_CONTROL_HEIGHT], ledger);
