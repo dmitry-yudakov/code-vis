@@ -13,7 +13,8 @@ async function openConversation(page: Page, request: APIRequestContext, count = 
     name: `Local links ${Date.now()}`, checkoutIds: ids.slice(0, count),
   } })).json();
   const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json() as { session: PublicSession };
-  const text = '[Package file](package.json:2) [Source anchor](package.json#metadata) [Line range](src/long.ts#L120-L123) '
+  const text = '> Read [workspace story](docs/file-links.md#details) next.\n\n'
+    + '[Package file](package.json:2) [Source anchor](package.json#metadata) [Line range](src/long.ts#L120-L123) '
     + `[Absolute file](${path.resolve('test/fixtures/projects/alpha/package.json')}:2) `
     + `[File URL](file://${path.resolve('test/fixtures/projects/alpha/package.json')}#L2) `
     + '[Document](docs/file-links.md#details) [Missing](missing.txt) [Docker file](/workspace/package.json:2) '
@@ -41,6 +42,55 @@ async function openConversation(page: Page, request: APIRequestContext, count = 
 const activeFile = (page: Page) => page.locator('.file-view-content:not([hidden])');
 const pane = (page: Page) => page.getByRole('region', { name: 'File view', exact: true });
 const tabs = (page: Page) => page.getByRole('tablist', { name: 'Open files', exact: true });
+
+test('a handoff selection includes file link text and the exact target can be copied separately', async ({ page, request, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openConversation(page, request);
+  const reply = page.locator('.chat-message.assistant');
+  const handoff = reply.locator('blockquote p');
+  const link = handoff.getByRole('button', { name: 'workspace story', exact: true });
+  const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+
+  const box = (await link.boundingBox())!;
+  const paragraph = (await handoff.boundingBox())!;
+  const textY = box.y + box.height / 2;
+  await page.mouse.move(paragraph.x + 1, textY);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 40, textY, { steps: 12 });
+  await page.mouse.up();
+  await page.keyboard.press('ControlOrMeta+c');
+  await expect.poll(async () => (await clipboard()).trim()).toBe('Read workspace story next.');
+  await expect(pane(page)).not.toBeVisible();
+
+  await reply.getByRole('button', { name: 'Copy reply', exact: true }).click();
+  await expect.poll(clipboard).toContain('> Read [workspace story](docs/file-links.md#details) next.');
+
+  const copyLink = page.getByRole('menuitem', { name: 'Copy link target' });
+  await link.click({ button: 'right' });
+  await expect(copyLink).toBeFocused();
+  await page.evaluate(() => {
+    const writeText = navigator.clipboard.writeText.bind(navigator.clipboard);
+    navigator.clipboard.writeText = async () => {
+      navigator.clipboard.writeText = writeText;
+      throw new DOMException('Clipboard denied', 'NotAllowedError');
+    };
+  });
+  await copyLink.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Could not copy. Try again.' })).toBeVisible();
+  await copyLink.press('Enter');
+  await expect.poll(clipboard).toBe('docs/file-links.md#details');
+  await expect(copyLink).toHaveCount(0);
+  await expect(link).toBeFocused();
+
+  await link.press('Shift+F10');
+  await expect(copyLink).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(link).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(activeFile(page).getByRole('heading', { name: 'Details', exact: true })).toBeInViewport();
+});
+
 async function showChat(page: Page) {
   const compact = await page.locator('.app-shell').evaluate(node => node.classList.contains('dock-capacity-0'));
   const button = (compact ? page.getByRole('navigation', { name: 'Views', exact: true }) : page.locator('.app-header'))

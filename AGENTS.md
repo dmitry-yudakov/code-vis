@@ -363,7 +363,9 @@ Updated 2026-11-21. When a story ships, change the line that names it; each stor
   repository files at referenced lines, and Files has its own activity-bar view with a lazy,
   expandable folder tree beside Repository's Changes/History. All 153 focused unit checks,
   63 distinct production-browser checks, TypeScript, isolated build, both-theme desktop/phone
-  screenshot inspection and independent review pass. The running app has not been rebuilt or restarted.
+  screenshot inspection and independent review pass. The November 23 follow-up keeps local link text
+  in copied handoff selections and adds **Copy link target** by mouse or keyboard. The story records
+  the browser regression and existing wider-suite failures. The running app still needs a rebuild.
 - **Shipped:** [Story 132](stories/STORY-20261106-participant-context-usage.md) — compact context
   circles beside the conversation agent and each Arena provider show percentages and token counts
   in tooltips, with live conversation updates and saved per-participant Arena readings. The initial

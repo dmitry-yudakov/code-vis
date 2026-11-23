@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import Link from '@mui/material/Link';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
@@ -129,9 +131,43 @@ export function RepositoryLink({ href, children, documentPath, checkoutId }: {
   href?: string; children?: ReactNode; documentPath?: string; checkoutId?: string;
 }) {
   const openFile = useOpenRepositoryFile();
+  const [copyMenu, setCopyMenu] = useState<{ anchor: HTMLButtonElement; failed?: boolean }>();
   const local = href ? localFileLink(href, documentPath) : undefined;
-  if (local && openFile) return <Link component="button" type="button" underline="always" sx={{ font: 'inherit', textAlign: 'left', verticalAlign: 'baseline' }}
-    title={`Open ${local.path}${local.line ? ` at line ${local.line}` : ''}`} onClick={() => openFile(local, checkoutId)}>{children}</Link>;
+  if (href && local && openFile) return <>
+    <Link component="button" type="button" underline="always"
+      sx={{ font: 'inherit', textAlign: 'left', verticalAlign: 'baseline', userSelect: 'text' }}
+      title={`Open ${local.path}${local.line ? ` at line ${local.line}` : ''} · Right-click to copy link target`}
+      aria-keyshortcuts="Shift+F10"
+      onClick={event => {
+        const selection = window.getSelection();
+        if (event.detail && selection && !selection.isCollapsed && selection.containsNode(event.currentTarget, true)) return;
+        openFile(local, checkoutId);
+      }}
+      onContextMenu={event => {
+        event.preventDefault();
+        event.currentTarget.focus({ preventScroll: true });
+        setCopyMenu({ anchor: event.currentTarget });
+      }}
+      onKeyDown={event => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+        event.preventDefault();
+        setCopyMenu({ anchor: event.currentTarget });
+      }}>{children}</Link>
+    {copyMenu && <Menu open anchorEl={copyMenu.anchor} onClose={() => setCopyMenu(undefined)}
+      slotProps={{ list: { 'aria-label': 'File link actions' } }}>
+      <MenuItem aria-label="Copy link target" sx={{ display: 'block' }} onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(href);
+          setCopyMenu(current => current === copyMenu ? undefined : current);
+        } catch {
+          setCopyMenu(current => current === copyMenu ? { ...current, failed: true } : current);
+        }
+      }}>
+        Copy link target
+        {copyMenu.failed && <div role="status">Could not copy. Try again.</div>}
+      </MenuItem>
+    </Menu>}
+  </>;
   if (href && /^(https?:|mailto:)/i.test(href)) return <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>;
   return <span title={local ? 'Attach a repository to open this file.' : href}>{children}</span>;
 }

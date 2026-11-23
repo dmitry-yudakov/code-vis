@@ -105,6 +105,24 @@ November 6 follow-up, before the first commit:
 
 The running application has not been rebuilt or restarted.
 
+## November 23 follow-up — Copy local file links
+
+- [x] Selecting rendered handoff text includes the file link label in the copied text.
+- [x] Right-clicking a file link or pressing Shift+F10 on it offers **Copy link target**. It copies
+      the destination with its line or heading reference and offers retry if clipboard access fails.
+- [x] The reply footer still copies the complete Markdown, and activating the link still opens the
+      referenced file in the workspace.
+
+The shared link renderer in `src/features/repository/RepositoryFilesProvider.tsx:130` owns the
+selection and link menu. Run the clipboard regression in `e2e/local-file-links.spec.ts:46` against
+an isolated production build.
+
+The clipboard regression reproduces the missing text on the previous build and passes on the fix.
+All 43 focused unit checks, TypeScript, the isolated production build and independent review pass.
+Of 49 distinct browser cases across local file links, chronological chat and incremental sessions,
+42 pass. Seven failures also reproduce on `c8b836d`: two idle control-count checks, two activity
+history checks after reload, and three phone session-tab checks. The running app still needs a rebuild.
+
 ## Limits
 
 This is a text-file viewer on desktop and phone layouts. File editing, image/PDF previews,
