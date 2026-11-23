@@ -10,12 +10,12 @@ const markdown = '# Complete document\n\nUnchanged introduction.\n\n- First item
   + '<script>window.reviewScriptRan = true</script>\n\n'
   + Array.from({ length: 80 }, (_, index) => `Paragraph ${index + 1}.\n\n`).join('');
 
-async function openReview(page: Page, request: APIRequestContext) {
+async function openReview(page: Page, request: APIRequestContext, file = 'review.md') {
   await page.route('**/api/repository/status?*', route => route.fulfill({ json: { tree: {
     isRepository: true, branch: 'main', files: [
       { path: 'docs/review.md', status: 'modified', staged: true, unstaged: true },
       { path: 'docs/another.md', status: 'untracked', staged: false, unstaged: false },
-      { path: 'source.ts', status: 'modified', staged: false, unstaged: true },
+      { path: 'package.json', status: 'modified', staged: false, unstaged: true },
     ],
   } } }));
   await page.route('**/api/repository/diff?*', route => {
@@ -35,7 +35,7 @@ async function openReview(page: Page, request: APIRequestContext) {
   const input = page.getByRole('textbox', { name: 'Instruction', exact: true });
   await input.fill('Keep this review draft');
   await selectWorkspaceView(page, /^Repository/);
-  await page.locator('.repository-file').filter({ hasText: 'review.md' }).click();
+  await page.locator('.repository-file').filter({ hasText: file }).click();
   await expect(page.getByLabel('Unified diff').last()).toContainText('Changed line 120');
   return input;
 }
@@ -43,6 +43,27 @@ async function openReview(page: Page, request: APIRequestContext) {
 const filePane = (page: Page) => page.getByRole('region', { name: 'File view', exact: true });
 const activeReview = (page: Page) => page.locator('.file-view-content:not([hidden])');
 const fileTabs = (page: Page) => page.getByRole('tablist', { name: 'Open files', exact: true });
+
+for (const width of [1440, 390]) {
+  test(`${width}: open the whole working-tree file from a diff and reuse its tab`, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openReview(page, request, 'package.json');
+    const diff = fileTabs(page).getByRole('tab', { name: 'package.json · Diff', exact: true });
+    const source = fileTabs(page).getByRole('tab', { name: 'package.json', exact: true });
+    const openFile = activeReview(page).getByRole('button', { name: 'Open whole file', exact: true });
+    await activeReview(page).getByRole('button', { name: 'Wrap text', exact: true }).click();
+    await expect(openFile).toBeInViewport();
+    await openFile.press('Enter');
+    await expect(source).toBeFocused();
+    await expect(activeReview(page).getByLabel('File source')).toContainText('"name": "alpha-fixture"');
+    await expect(activeReview(page).getByLabel('File source')).toContainText('"private": true');
+    await diff.click();
+    await expect(activeReview(page).getByRole('button', { name: 'Wrap text', exact: true })).toHaveAttribute('aria-pressed', 'false');
+    await openFile.click();
+    await expect(source).toHaveAttribute('aria-selected', 'true');
+    await expect(fileTabs(page).getByRole('tab')).toHaveCount(2);
+  });
+}
 
 for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
   test(`${theme} ${width}: diff wrapping, Markdown and pane maximize retain tabs and layout`, async ({ page, request }, testInfo) => {

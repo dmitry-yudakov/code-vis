@@ -32,10 +32,11 @@ export function Patch({ source }: { source?: string }) {
   );
 }
 
-export function RepositoryDiffInspector({ file, state, onClose, onRetry }: {
+export function RepositoryDiffInspector({ file, state, onClose, onOpenFile, onRetry }: {
   file: GitChangedFile;
   state: RepositoryDiffState;
   onClose(): void;
+  onOpenFile(): void;
   onRetry(): void;
 }) {
   const { diff, loading, error } = state;
@@ -54,6 +55,7 @@ export function RepositoryDiffInspector({ file, state, onClose, onRetry }: {
       <header className="diff-inspector-header">
         <IconButton type="button" aria-label="Close file changes" title="Close diff tab" onClick={onClose}>×</IconButton>
         <div><span className="eyebrow">{file.status} · read only</span><strong title={file.path}>{file.path}</strong></div>
+        <IconButton type="button" aria-label="Open whole file" title="Open whole file" onClick={onOpenFile}><ShellIcon name="file" /></IconButton>
         <IconButton aria-label="Refresh file changes" disabled={loading} onClick={onRetry}><ShellIcon name="refresh" /></IconButton>
       </header>
       <div className="diff-inspector-toolbar">

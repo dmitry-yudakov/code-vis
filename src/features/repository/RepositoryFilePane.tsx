@@ -16,6 +16,7 @@ function DiffTab({ tab, apiBase, revision }: { tab: Extract<FileTab, { kind: 'di
   const files = useRepositoryFiles()!;
   const state = useRepositoryDiff(tab.checkoutId, tab.file.path, revision + retry + tab.navigation, apiBase);
   return <RepositoryDiffInspector file={tab.file} state={state} onClose={() => files.close(tab.id)}
+    onOpenFile={() => files.openFile({ path: tab.file.path }, tab.checkoutId)}
     onRetry={() => setRetry(value => value + 1)} />;
 }
 
