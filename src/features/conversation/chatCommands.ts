@@ -1,4 +1,5 @@
-export type ChatCommand = { kind: 'autoclose'; allowed: boolean; remainingText?: string } | { kind: 'new' | 'archive' }
+type AutocloseCommand = { kind: 'autoclose'; allowed: boolean; remainingText?: string };
+export type ChatCommand = AutocloseCommand | { kind: 'new' | 'archive' }
   | { kind: 'invalid'; usage: string };
 
 const COMMANDS = [
@@ -16,6 +17,10 @@ export function chatCommand(text: string): ChatCommand | undefined {
     return action[2] ? { kind: 'invalid', usage: `Use /${name} without arguments.` }
       : { kind: name === 'new' ? 'new' : 'archive' };
   }
+  return autocloseCommand(text);
+}
+
+export function autocloseCommand(text: string): AutocloseCommand | undefined {
   let allowed: boolean | undefined;
   let remaining = '', offset = 0;
   // Consume code spans/fences as a whole so examples stay literal, including unfinished code.
@@ -32,7 +37,7 @@ export function chatCommand(text: string): ChatCommand | undefined {
   return { kind: 'autoclose', allowed, ...(remaining ? { remainingText: remaining } : {}) };
 }
 
-export function commandSuggestions(text: string, cursor = text.length) {
+export function commandSuggestions(text: string, cursor = text.length, autocloseOnly = false) {
   const match = /(^|\s)(\/[a-z]*(?:[ \t]+[a-z]*)?)$/i.exec(text.slice(0, cursor));
   if (!match) return [];
   const start = match.index + match[1].length;
@@ -42,7 +47,7 @@ export function commandSuggestions(text: string, cursor = text.length) {
   const choices = argument ? [
     { text: `/${argument[1]} on`, description: 'Allow the agent to archive when finished' },
     { text: `/${argument[1]} off`, description: 'Turn off automatic archiving' },
-  ] : text.slice(0, start).trim() ? COMMANDS.slice(0, 1) : COMMANDS;
+  ] : autocloseOnly || text.slice(0, start).trim() ? COMMANDS.slice(0, 1) : COMMANDS;
   const end = cursor + (/^[a-z]*/i.exec(text.slice(cursor))?.[0].length || 0);
   return choices.filter(choice => choice.text.startsWith(query)).map(choice => ({ ...choice, start, end }));
 }

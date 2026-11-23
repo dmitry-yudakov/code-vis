@@ -19,6 +19,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
 import { AttachmentChip } from '@/features/conversation/AttachmentChip';
+import { useChatCommandInput } from '@/features/conversation/ChatCommandInput';
 import { CheckoutChoice } from '@/features/conversation/CheckoutChoice';
 import { ModelMenu } from '@/features/conversation/InstructionComposer';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
@@ -33,7 +34,6 @@ import { AGENT_ROLES, AGENT_ROLE_LABELS } from '@/shared/participants';
 import type { AgentRole } from '@/shared/types';
 import { SESSION_LAUNCH_MODES, type SessionLaunchMode } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
-import { launchText } from './sessionLaunch';
 import type { SessionLauncher } from './useSessionLauncher';
 
 export function SessionSetupDialog({ launcher, immersive, inline = false }: { launcher: SessionLauncher; immersive: boolean; inline?: boolean }) {
@@ -41,11 +41,14 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const settingsId = useId();
-  const input = useRef<HTMLTextAreaElement>(null);
+  const draft = launcher.draft;
+  const open = launcher.isOpen && !immersive;
+  const commandInput = useChatCommandInput(draft?.text ?? '', launcher.setText, open && !launcher.settingsLocked,
+    { placement: 'bottom-start', autocloseOnly: true });
+  const input = commandInput.ref;
   const submitButton = useRef<HTMLButtonElement>(null);
   const files = useRef<HTMLInputElement>(null);
   const focusedDraft = useRef(false);
-  const open = launcher.isOpen && !immersive;
   const restoreFocus = useDialogFocus(open && !inline, '.more-menu > button', launcher.opener.current);
   useEffect(() => {
     if (!open) { setPreview(undefined); setSettingsOpen(false); setReportsOpen(false); }
@@ -53,7 +56,6 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
     const target = launcher.frozen ? submitButton.current : input.current;
     if (open && !launcher.busy && launcher.draft && !focusedDraft.current && target) { target.focus(); focusedDraft.current = true; }
   }, [open, launcher.busy, launcher.frozen, Boolean(launcher.draft)]);
-  const draft = launcher.draft;
   const settings = draft?.settings;
   const locked = launcher.settingsLocked;
   const previewImage = draft?.images.find((image) => image.id === preview);
@@ -93,14 +95,19 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
         {targetDetails && <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{targetDetails}</Typography>}
       </Box>
       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+        {commandInput.list}
         <TextField multiline fullWidth variant="standard" inputRef={input} value={draft.text} rows={4}
-          slotProps={{ input: { disableUnderline: true }, htmlInput: { maxLength: 8_000, 'aria-label': 'First message (optional)' } }} disabled={launcher.frozen}
+          slotProps={{ input: { disableUnderline: true }, htmlInput: { maxLength: 8_000, 'aria-label': 'First message (optional)', ...commandInput.aria } }} disabled={launcher.frozen}
           placeholder="What would you like to work on?"
-          onChange={(event) => launcher.setText(event.target.value)}
+          onChange={commandInput.onChange}
+          onFocus={commandInput.onFocus}
+          onBlur={commandInput.onBlur}
+          onSelect={commandInput.onSelect}
           onPaste={(event) => { const images = pastedImageFiles(event.clipboardData); if (images.length) { event.preventDefault(); void launcher.addFiles(images); } }}
           onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
           onDrop={(event) => { event.preventDefault(); void launcher.addFiles(Array.from(event.dataTransfer.files)); }}
           onKeyDown={(event) => {
+            if (commandInput.onKeyDown(event)) return;
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && !event.repeat) {
               event.preventDefault();
               if (event.ctrlKey || event.metaKey) { if (canQueue) void launcher.submit({ waitForCheckout: true }); }
@@ -127,6 +134,9 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
           </Box>}
         </DesktopPopover>
       </Paper>
+      {settings.allowAgentArchive !== undefined && <Typography role="status" variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+        Auto-close {settings.allowAgentArchive ? 'enabled' : 'disabled'}.
+      </Typography>}
       <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mt: 1 }}>
         <ProviderChips value={settings.provider} available={(['claude', 'codex'] as const).filter(provider => launcher.providers?.[provider]?.available)}
           disabled={locked} onChange={provider => launcher.setSettings({ provider })} />
@@ -185,7 +195,7 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
           </label>)}
         </Box>
       </Collapse>
-      {launcher.hasContent && !draft.text.trim() && <p className="session-setup-fallback">Initial message: {launchText({ text: draft.text, images: draft.images, files: draft.files, reportIds: draft.reportIds })}</p>}
+      {launcher.fallbackText && <p className="session-setup-fallback">Initial message: {launcher.fallbackText}</p>}
       {settings.execution === 'docker' && <p>Agent edits this repository directly and runs commands without individual approvals. Mounted files, including ignored files, are accessible.</p>}
       {launcher.createdSession && <Button onClick={launcher.openCreated}>Open created session</Button>}
     </>}
@@ -208,8 +218,11 @@ export function SessionSetupDialog({ launcher, immersive, inline = false }: { la
           <span><Button variant="outlined" disabled={!canQueue} aria-keyshortcuts="Control+Enter Meta+Enter"
             onClick={() => void launcher.submit({ waitForCheckout: true })}>Queue session</Button></span>
         </Tooltip>}
-        <Button ref={submitButton} variant="contained" disabled={!launcher.canSubmit} onClick={() => void launcher.submit()}>
-          {launcher.error ? 'Retry' : launcher.hasContent ? inline ? 'Start session' : 'Start in background' : 'Create and open'}
+        <Button ref={submitButton} variant="contained" disabled={!launcher.canSubmit} onClick={() => {
+          void launcher.submit();
+          if (launcher.autocloseOnly) input.current?.focus();
+        }}>
+          {launcher.error ? 'Retry' : launcher.autocloseOnly ? 'Apply auto-close' : launcher.hasContent ? inline ? 'Start session' : 'Start in background' : 'Create and open'}
         </Button>
       </>}
     </DialogActions>

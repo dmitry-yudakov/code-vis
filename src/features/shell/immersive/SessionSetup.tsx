@@ -6,7 +6,6 @@ import { offeredEfforts } from '@/shared/modelChoices';
 import { unsupportedModes } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
 import { launchInstructions } from '@/features/shell/devicePreferences';
-import { launchText } from '@/features/session-launch/sessionLaunch';
 import type { SessionLauncher } from '@/features/session-launch/useSessionLauncher';
 import { reportTitle, reportDescription, reportCaptureLabel } from '@/features/reports/reportModel';
 import { immersiveReportPath } from '@/features/reports/useImmersiveReports';
@@ -56,7 +55,10 @@ export function SessionSetup({ launcher, theme, onCapture, onController }: {
     : page === 'agents' ? [`Provider: ${settings?.provider}`, `Mode: ${settings?.mode}`, `Global instructions: ${settings ? launchInstructions(settings.instructions, settings.execution, settings.provider) ?? 'Default' : 'Default'}`,
       `Model: ${settings?.modelSelection.model ?? 'Default'}`, `Effort: ${settings?.modelSelection.effort ?? 'Default'}`,
       settings?.execution === 'docker' ? 'Docker Agent edits directly without individual approvals.' : ''].join('\n\n')
-    : `${launcher.hasContent ? 'Start in background; keep this workspace open.' : 'An empty submission opens the new conversation.'}\n\n${launcher.hasContent && !draft.text.trim() ? launchText({ text: draft.text, images: draft.images, files: draft.files, reportIds: draft.reportIds }) : 'Type with the headset keyboard, or dictate and review your words.'}`);
+    : [launcher.autocloseOnly ? 'Apply auto-close for this setup.'
+      : launcher.hasContent ? 'Start in background; keep this workspace open.' : 'An empty submission opens the new conversation.',
+      settings?.allowAgentArchive !== undefined ? `Auto-close ${settings.allowAgentArchive ? 'enabled' : 'disabled'}.` : '',
+      launcher.fallbackText || 'Type with the headset keyboard, or dictate and review your words.'].filter(Boolean).join('\n\n'));
   const text = settings ? `${launcher.machine?.machine.label ?? 'Offline'} · ${launcher.selectedProject?.name ?? settings.checkoutId ?? 'No project'} · ${settings.execution} · ${settings.provider} · ${settings.mode}\n\n${detail}` : detail;
   const surface = useTextureResource((ledger) => ({ geometry: ledger.trackGeometry(new THREE.PlaneGeometry(1.52, 1.92)),
     material: ledger.trackMaterial(new THREE.MeshBasicMaterial({ color: immersiveTheme[theme].raised, toneMapped: false })) }), [theme]);

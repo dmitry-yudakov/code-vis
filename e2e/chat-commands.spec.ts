@@ -74,13 +74,15 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     expect(turns).toBe(0);
     expect(await page.locator('body').evaluate(node => node.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('inline-setup.png'), animations: 'disabled' });
-    await first.fill('Begin the next task from the keyboard.');
+    await first.fill('Begin the next task from the keyboard. /autoclose');
     await first.press('Enter');
     await expect(page.getByRole('complementary', { name: 'Conversation', exact: true })).toContainText('Begin the next task from the keyboard.');
-    await expect(input).toBeFocused();
+    if (width === 1280) await expect(input).toBeFocused();
+    else await expect(input).not.toBeFocused();
     const current = (await (await request.get(`/api/sessions?projectId=${project.id}`)).json()).sessions as PublicSession[];
     expect(current).toHaveLength(1);
     expect(current[0].id).not.toBe(session.id);
+    expect(current[0].allowAgentArchive).toBe(true);
     expect(current[0].messages[0]).toMatchObject({ role: 'user', text: 'Begin the next task from the keyboard.' });
   });
 }

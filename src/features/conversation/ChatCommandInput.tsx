@@ -8,8 +8,11 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
 import { commandSuggestions } from './chatCommands';
 
-/** Both composers complete only the command at the caret, retaining the rest of the draft. */
-export function useChatCommandInput(value: string, onChange: (text: string) => void, enabled: boolean, portal = false) {
+type CommandPlacement = 'top-start' | 'bottom-start';
+
+/** Complete only the command at the caret, retaining the rest of the draft. */
+export function useChatCommandInput(value: string, onChange: (text: string) => void, enabled: boolean,
+  { placement, autocloseOnly = false }: { placement?: CommandPlacement; autocloseOnly?: boolean } = {}) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   const [focused, setFocused] = useState(false);
@@ -17,7 +20,7 @@ export function useChatCommandInput(value: string, onChange: (text: string) => v
   const [cursor, setCursor] = useState<number>();
   const [selection, setSelection] = useState(false);
   const [selected, setSelected] = useState(0);
-  const suggestions = enabled && focused && !dismissed && !selection ? commandSuggestions(value, cursor ?? value.length) : [];
+  const suggestions = enabled && focused && !dismissed && !selection ? commandSuggestions(value, cursor ?? value.length, autocloseOnly) : [];
   const selectedIndex = Math.min(selected, Math.max(0, suggestions.length - 1));
   const dismiss = () => setDismissed(true);
   const complete = (index: number) => {
@@ -34,7 +37,7 @@ export function useChatCommandInput(value: string, onChange: (text: string) => v
   }, [listId, selectedIndex, suggestions.length]);
   return {
     ref, dismiss,
-    list: <ChatCommandSuggestions id={listId} suggestions={suggestions} selected={selectedIndex} onComplete={complete} portal={portal} anchor={ref.current} />,
+    list: <ChatCommandSuggestions id={listId} suggestions={suggestions} selected={selectedIndex} onComplete={complete} placement={placement} anchor={ref.current} />,
     aria: {
       'aria-autocomplete': enabled ? 'list' as const : undefined,
       'aria-expanded': enabled ? suggestions.length > 0 : undefined,
@@ -70,12 +73,12 @@ export function useChatCommandInput(value: string, onChange: (text: string) => v
   };
 }
 
-function ChatCommandSuggestions({ id, suggestions, selected, onComplete, portal, anchor }: {
+function ChatCommandSuggestions({ id, suggestions, selected, onComplete, placement, anchor }: {
   id: string; suggestions: ReturnType<typeof commandSuggestions>; selected: number; onComplete(index: number): void;
-  portal: boolean; anchor: HTMLTextAreaElement | null;
+  placement?: CommandPlacement; anchor: HTMLTextAreaElement | null;
 }) {
   if (!suggestions.length) return null;
-  const paper = <Paper variant="outlined" sx={{ ...(portal ? { width: anchor?.clientWidth, maxWidth: 'calc(100vw - 24px)' }
+  const paper = <Paper variant="outlined" sx={{ ...(placement ? { width: anchor?.clientWidth, maxWidth: 'calc(100vw - 24px)' }
     : { position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 2 }), maxHeight: 'min(320px, 45dvh)', overflow: 'auto' }}>
     <List id={id} role="listbox" aria-label="Chat commands" dense disablePadding>
       {suggestions.map((suggestion, index) => <ListItemButton key={suggestion.text} id={`${id}-${index}`}
@@ -85,7 +88,7 @@ function ChatCommandSuggestions({ id, suggestions, selected, onComplete, portal,
       </ListItemButton>)}
     </List>
   </Paper>;
-  return portal ? <Popper open anchorEl={anchor} placement="top-start" popperOptions={{ strategy: 'fixed' }}
+  return placement ? <Popper open anchorEl={anchor} placement={placement} popperOptions={{ strategy: 'fixed' }}
     modifiers={[{ name: 'preventOverflow', options: { padding: 12 } }, { name: 'offset', options: { offset: [0, 4] } }]}
     sx={{ zIndex: theme => theme.zIndex.modal + 1 }}>{paper}</Popper> : paper;
 }

@@ -35,6 +35,64 @@ async function send(page: Page, text: string) {
 }
 
 for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
+  test(`new session autoclose configures setup and archives the first turn: ${theme} ${width}`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);
+    const target = await project(request);
+    await page.goto('/arena');
+    await page.getByRole('button', { name: `New session in ${target.project.name}`, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
+    const input = dialog.getByRole('textbox', { name: 'First message (optional)', exact: true });
+    const suggestions = page.getByRole('listbox', { name: 'Chat commands', exact: true });
+    await input.fill('/');
+    await expect(suggestions.getByRole('option')).toHaveCount(1);
+    await expect(suggestions.getByRole('option')).toContainText('/autoclose');
+    await expect(suggestions.getByRole('option')).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath('setup-commands.png'), animations: 'disabled' });
+    await input.press('Escape');
+    await expect(suggestions).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await input.fill('/auto');
+    await suggestions.getByRole('option').click();
+    await expect(input).toHaveValue('/autoclose');
+    await dialog.locator('input[type=file]').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this evidence') });
+    const attachment = dialog.getByRole('button', { name: 'Remove file notes.txt', exact: true });
+    await expect(attachment).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Queue session', exact: true })).toBeDisabled();
+    await input.press('Enter');
+    await expect(dialog.getByRole('status')).toHaveText('Auto-close enabled.');
+    await expect(input).toBeEmpty();
+    await expect(input).toBeFocused();
+    await expect(attachment).toBeVisible();
+    await expect(dialog.getByText('Initial message: Read the attached text files', { exact: false })).toBeVisible();
+    expect((await (await request.get(`/api/sessions?projectId=${target.project.id}`)).json()).sessions).toHaveLength(0);
+    await input.fill('/autoclose o');
+    await input.press('ArrowDown');
+    await input.press('Tab');
+    await expect(input).toHaveValue('/autoclose off');
+    await dialog.getByRole('button', { name: 'Apply auto-close', exact: true }).click();
+    await expect(dialog.getByRole('status')).toHaveText('Auto-close disabled.');
+    await dialog.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(dialog.getByRole('checkbox', { name: 'Allow agent to archive', exact: true })).not.toBeChecked();
+
+    // Give the fixture's background title write time to finish before the archive decision.
+    await input.fill('Complete this task /autoclose [archive-complete] [archive-check-delay]');
+    const created = page.waitForResponse(response => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
+    const first = page.waitForRequest(request => request.url().endsWith('/api/agent/message'));
+    await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
+    const { session } = await (await created).json() as { session: PublicSession };
+    expect(session.allowAgentArchive).toBe(true);
+    expect((await first).postDataJSON()).toMatchObject({ sessionId: session.id, text: 'Complete this task [archive-complete] [archive-check-delay]',
+      fileAttachments: [{ name: 'notes.txt', text: 'Keep this evidence' }] });
+    await expect.poll(async () => {
+      const arena = await (await request.get('/api/arena')).json() as ArenaSnapshot;
+      return arena.machines.flatMap(machine => machine.archivedSessions).find(item => item.id === session.id)?.agentArchiveCheck?.status;
+    }, { timeout: 15_000 }).toBe('archived');
+    await expect(page).toHaveURL(/\/arena$/);
+  });
+}
+
+for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
   test(`explicit permission in setup and conversation survives reload: ${theme} ${width}`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 844 });
     await page.addInitScript(value => localStorage.setItem('code-ai:theme', value), theme);

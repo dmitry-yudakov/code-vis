@@ -8,6 +8,7 @@ import { offeredModelSelection } from '@/shared/modelChoices';
 import { createUuid } from '@/shared/uuid';
 import { MAX_IMAGES_PER_MESSAGE, MAX_REPORTS_PER_MESSAGE } from '@/shared/limits';
 import { validateTextFiles, type TextFile } from '@/shared/textFiles';
+import { autocloseCommand } from '@/features/conversation/chatCommands';
 import { prepareTextFile } from '@/features/conversation/textFiles';
 import { prepareImage, type PendingImage } from '@/features/conversation/imageAttachments';
 import { worktreeChoice } from '@/features/conversation/worktreeChoice';
@@ -18,6 +19,11 @@ import { launchChoice, launchModes, type DevicePreferences } from '@/features/sh
 import { LaunchFailure, launchSession, launchText, type LaunchAttempt, type LaunchResult, type LaunchSettings } from './sessionLaunch';
 
 interface Draft { settings: LaunchSettings; text: string; images: PendingImage[]; files: TextFile[]; reportIds: string[] }
+function firstMessage(draft: Draft) {
+  const command = autocloseCommand(draft.text);
+  return { command, text: command ? command.remainingText ?? '' : draft.text };
+}
+
 interface SetupState { open: boolean; inline?: boolean; inlineOrigin?: string; draft?: Draft; busy: boolean; preparing: boolean; voicePending: boolean; error?: string; targetNotice?: string; frozen: boolean; outcome?: LaunchResult & { settings: LaunchSettings } }
 export interface LauncherOptions {
   authorized: boolean; localMachineId?: string; machines: ArenaMachineSnapshot[]; executions?: ExecutionHealth;
@@ -220,9 +226,18 @@ export function useSessionLauncher(options: LauncherOptions) {
     patch({ draft: undefined, error: undefined, targetNotice: undefined, preparing: false, voicePending: false, open: false });
   };
   const submit = async (start?: { waitForCheckout: boolean }) => {
-    if (!current.current.draft || current.current.busy || current.current.preparing || current.current.voicePending || !props.current.localMachineId) return;
+    const setup = current.current;
+    if (!setup.draft || setup.busy || setup.preparing || setup.voicePending || !props.current.localMachineId) return;
+    if (!setup.frozen) {
+      const { command, text } = firstMessage(setup.draft);
+      if (command) {
+        if (attempt.current?.session) return;
+        edit({ text, settings: { ...setup.draft.settings, allowAgentArchive: command.allowed } });
+        if (!text) return;
+      }
+    }
     // Capture the action before creation; Retry preserves the exact submitted scheduling choice.
-    if (!current.current.frozen && !current.current.error) setSettings({ waitForCheckout: start?.waitForCheckout || undefined });
+    if (!setup.frozen && !setup.error) setSettings({ waitForCheckout: start?.waitForCheckout || undefined });
     const draft = current.current.draft!;
     const backgroundQueue = Boolean(draft.settings.waitForCheckout && !current.current.inline);
     const serial = generation.current; const origin = props.current.origin;
@@ -251,12 +266,17 @@ export function useSessionLauncher(options: LauncherOptions) {
   };
   const invalidateCapture = useCallback(() => { captureGeneration.current++; }, []);
   const setVoicePending = useCallback((value: boolean) => { if (current.current.voicePending !== value) patch({ voicePending: value }); }, []);
-  const hasContent = Boolean(draft && launchText({ text: draft.text, images: draft.images, files: draft.files, reportIds: draft.reportIds }));
+  const message = draft && firstMessage(draft);
+  const autocloseOnly = Boolean(message?.command && !message.text);
+  const instruction = draft && message && !autocloseOnly ? launchText({ ...draft, text: message.text }) : '';
+  const hasContent = Boolean(instruction);
+  const fallbackText = message && !message.text.trim() ? instruction : undefined;
   const hasDraftChanges = Boolean(draft && (draft.text || hasContent || JSON.stringify(draft.settings) !== JSON.stringify(initialSettings.current)));
   const invalidDocker = draft?.settings.execution === 'docker' && (selectedProject ? selectedProject.repositories.length !== 1
     || selectedProject.repositories[0].role !== 'primary' || selectedProject.repositories[0].hostId !== machine?.machine.id : !draft.settings.checkoutId);
   const primary = selectedProject ? selectedProject.repositories.some((binding) => binding.role === 'primary') : Boolean(draft?.settings.checkoutId);
-  const blocker = machine?.machine.state !== 'online' ? 'The target machine is offline. Refresh when it reconnects.'
+  const blocker = message?.command && attempt.current?.session ? 'Open the created session to change auto-close.'
+    : autocloseOnly ? undefined : machine?.machine.state !== 'online' ? 'The target machine is offline. Refresh when it reconnects.'
     : hasContent && !primary ? 'Choose a primary repository before starting a message.'
     : draft?.reportIds.length && (reports.loading || !reports.available) ? 'Remove the reports or choose CodeAI’s own project on the home machine.'
     : !health?.available ? health?.message || 'Choose an available provider.'
@@ -265,10 +285,10 @@ export function useSessionLauncher(options: LauncherOptions) {
     : draft?.settings.checkoutMode === 'worktree' && !checkoutChoice.available ? checkoutChoice.reason
     : draft ? nativeClaudeIsolationIssue({ provider: draft.settings.provider, execution: draft.settings.execution,
       level: machine?.securityLevel, mode: draft.settings.mode, choice: draft.settings.instructions }) : undefined;
-  const blocked = state.busy || state.preparing || state.voicePending || !draft || machine?.machine.state !== 'online'
+  const blocked = state.busy || state.preparing || state.voicePending || !draft || (!autocloseOnly && machine?.machine.state !== 'online')
     || (!state.frozen && Boolean(blocker));
   return { ...state, opener, availabilityError, blocker, hasDraftChanges, isOpen: state.open, dockerOffered: Boolean(options.executions?.docker.enabled), availability, machines: options.machines, machine, providers, modes, health, reports, selectedProject, checkoutChoice,
-    hasContent, canSubmit: !blocked, settingsLocked: state.frozen || state.busy || Boolean(attempt.current?.session),
+    hasContent, autocloseOnly, fallbackText, canSubmit: !blocked, settingsLocked: state.frozen || state.busy || Boolean(attempt.current?.session),
     turnSettingsLocked: state.frozen || state.busy,
     createdSession: attempt.current?.session, refreshAvailability, open, openForProject, openCodeAi, close: () => { captureGeneration.current++; if (current.current.preparing && !current.current.draft && !current.current.busy) { generation.current++; patch({ preparing: false }); } patch({ open: false }); }, clear,
     setText: (text: string) => edit({ text }), setSettings, setVoicePending, addFiles,

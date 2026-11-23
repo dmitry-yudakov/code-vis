@@ -95,7 +95,7 @@ for (const recovery of ['rejected', 'uncertain'] as const) {
       await page.locator('.app-header').getByRole('button', { name: 'New session', exact: true }).click();
       await page.getByRole('button', { name: 'Queue session…', exact: true }).click();
       const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
-      await dialog.getByRole('textbox').fill('Retain this queued setup');
+      await dialog.getByRole('textbox').fill('Retain this queued setup /autoclose');
       await dialog.locator('input[type=file]').setInputFiles({ name: 'idea.txt', mimeType: 'text/plain', buffer: Buffer.from('Retained evidence') });
       await dialog.getByRole('button', { name: 'Queue session', exact: true }).click();
       await expect(dialog).toBeHidden();
@@ -116,6 +116,7 @@ for (const recovery of ['rejected', 'uncertain'] as const) {
       await expect(dialog).toBeHidden();
       await expect(page.getByText('Session queued. It will start after earlier sessions are archived.', { exact: true })).toBeVisible();
       expect(creations).toHaveLength(2);
+      for (const creation of creations) expect(creation).toMatchObject({ allowAgentArchive: true });
       if (recovery === 'uncertain') expect(creations[1]).toEqual(creations[0]);
       expect(messages).toHaveLength(1);
       expect(messages[0]).toMatchObject({ text: 'Retain this queued setup', waitForCheckout: true,

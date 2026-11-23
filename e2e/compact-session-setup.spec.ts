@@ -126,7 +126,7 @@ test('compact progress recovers a rejected message in the created session and re
   await page.goto('/arena');
   await page.getByRole('button', { name: `New session in ${target.name}`, exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New session', exact: true });
-  await dialog.getByRole('textbox').fill('Retry this task');
+  await dialog.getByRole('textbox').fill('Retry this task /autoclose');
   await dialog.getByRole('button', { name: 'Start in background', exact: true }).click();
   try {
     await expect(dialog.getByRole('status')).toHaveText('Session created. Sending message…');
@@ -136,6 +136,7 @@ test('compact progress recovers a rejected message in the created session and re
     release();
     await expect(dialog.getByRole('alert')).toContainText('Provider temporarily unavailable');
     await expect(dialog.getByRole('textbox')).toHaveValue('Retry this task');
+    await expect(dialog.getByRole('status')).toHaveText('Auto-close enabled.');
     await expect(dialog.getByRole('button', { name: 'Open created session', exact: true })).toBeVisible();
     await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
     await expect(dialog).toBeHidden();
@@ -179,6 +180,10 @@ test('general setup remembers its machine and keeps an offline remembered target
   await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeDisabled();
   await expect(dialog.getByRole('status').filter({ hasText: 'target machine is offline' })).toBeVisible();
   await expect(dialog.getByLabel('Machine', { exact: true })).toHaveValue(remoteId);
+  await dialog.getByRole('textbox').fill('/autoclose');
+  await dialog.getByRole('button', { name: 'Apply auto-close', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Allow agent to archive', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeDisabled();
   await dialog.getByLabel('Machine', { exact: true }).selectOption(local.machine.id);
   await expect(dialog.getByRole('button', { name: 'Create and open', exact: true })).toBeEnabled();
   // Reload drops the unsubmitted retargeting; the saved offline choice must still win.

@@ -34,7 +34,7 @@ export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePe
   const frozen = Boolean(draft.delivery);
   const locked = disabled || frozen;
   const command = !frozen ? chatCommand(draft.text) : undefined;
-  const commandInput = useChatCommandInput(draft.text, text => replies.edit(machine.machine.id, session.id, { text }), !locked, true);
+  const commandInput = useChatCommandInput(draft.text, text => replies.edit(machine.machine.id, session.id, { text }), !locked, { placement: 'top-start' });
   const message = session.lastMessage;
   const missingImages = (draft.delivery?.imageCount || 0) > (draft.images?.length || 0);
   const sendLabel = draft.busy ? 'Sending…' : frozen ? missingImages ? 'Check delivery' : 'Check / retry' : command ? 'Run command' : 'Send';
