@@ -33,11 +33,27 @@ async function resume(config: AppConfig): Promise<void> {
 async function restore(records: SuspendedTurn[], journal: SuspendedTurns, config: AppConfig): Promise<void> {
   const store = getSessionStore(config.dataDir, config.hostLabel);
   await store.host(); // Acquire the canonical store's process-wide writer lock before claiming work.
+  const sessionSlots = new Map<string, number[]>();
+  records.forEach((turn, index) => {
+    const slots = sessionSlots.get(turn.request.sessionId) ?? [];
+    slots.push(index);
+    sessionSlots.set(turn.request.sessionId, slots);
+  });
+  for (const [sessionId, slots] of sessionSlots) {
+    if (slots.length < 2) continue;
+    const session = await store.getSession(sessionId).catch(() => undefined);
+    if (!session) continue; // The normal recovery loop handles unavailable sessions.
+    // The saved transcript breaks timestamp ties without moving another session's queue entries.
+    const order = new Map(session.messages.map((message, index) => [message.id, index]));
+    const ordered = slots.map(slot => records[slot]).sort((a, b) =>
+      (order.get(a.request.messageId) ?? Infinity) - (order.get(b.request.messageId) ?? Infinity));
+    slots.forEach((slot, index) => { records[slot] = ordered[index]; });
+  }
   // Later ideas already have saved messages now, but were not predecessors at original admission.
   // Include unresumable records too: their preflight failure must not prevent earlier work.
   const laterQueuedSessions = new Set(records.filter(turn => turn.request.waitForCheckout).map(turn => turn.request.sessionId));
   for (const turn of records) {
-    laterQueuedSessions.delete(turn.request.sessionId);
+    if (turn.request.waitForCheckout) laterQueuedSessions.delete(turn.request.sessionId);
     try {
       const session = await store.getSession(turn.request.sessionId);
       const message = session.messages.find(item => item.id === turn.request.messageId);

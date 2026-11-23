@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type {
-  AgentContextUsage, AgentEvent, AgentMessageRequest, AgentMode, AgentProcessResult, AgentProcessRunner, AssistantMessage, DurableSession, ServerCheckout,
+  AgentContextUsage, AgentEvent, AgentMessageRequest, AgentMode, AgentProcessResult, AgentProcessRunner, AssistantMessage, DurableSession, ServerCheckout, SteerTurn,
 } from '@/shared/types';
 import type { AppConfig } from '@/server/config';
 import type { SessionStore } from '@/server/storage/sessionStore';
@@ -63,6 +63,7 @@ export async function runConversation(input: {
   signal: AbortSignal;
   emit(event: AgentEvent): void;
   onPermissionBroker?(broker: PermissionBroker | undefined): void;
+  onSteer?(steer?: SteerTurn): Promise<unknown> | undefined;
   turnMode?: TurnMode;
   suspension?: TurnSuspension;
   continuationProgress?: ContinuationProgress;
@@ -208,6 +209,7 @@ export async function runConversation(input: {
           attachmentDirectory: directory,
           policy,
           permissions,
+          onSteer: input.onSteer,
           signal: AbortSignal.any([signal, attempt.signal, ...(input.suspension ? [input.suspension.signal] : [])]),
           model: request.model,
           effort: request.effort,
@@ -283,6 +285,7 @@ export async function runConversation(input: {
         if (!attempt.signal.aborted || signal.aborted
           || !(error instanceof AgentRunError) || error.code !== 'cancelled') throw error;
       } finally {
+        await input.onSteer?.();
         permissions?.cancelAll();
         input.onPermissionBroker?.(undefined);
         if (!pending.size) spentMs += Date.now() - workingSince;

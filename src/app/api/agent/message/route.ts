@@ -13,11 +13,16 @@ export async function POST(request: Request): Promise<Response> {
   const response = await submitMessage(request);
   const runId = response.headers.get('X-CodeAI-Run-Id');
   if (!runId) return response;
+  const state = runRegistry.currentRuns.find(run => run.runId === runId)?.state ?? 'finished';
+  if (response.headers.get('X-CodeAI-Queue-Only') === 'true') {
+    response.headers.delete('X-CodeAI-Queue-Only');
+    response.headers.set('X-CodeAI-Run-State', state);
+    return response;
+  }
   let attachmentId: string | undefined;
   return withBrowserRunBudget(request, agentEventStream({
     runId,
-    headers: { 'X-CodeAI-Run-Id': runId,
-      'X-CodeAI-Run-State': runRegistry.currentRuns.find(run => run.runId === runId)?.state ?? 'finished' },
+    headers: { 'X-CodeAI-Run-Id': runId, 'X-CodeAI-Run-State': state },
     onDetach: () => { if (attachmentId) runRegistry.unsubscribe(runId, attachmentId); },
     start(write) {
       const attachment = runRegistry.subscribe(runId, write);

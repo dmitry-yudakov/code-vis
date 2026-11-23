@@ -123,6 +123,27 @@ describe('incremental session reads', () => {
     expect(serializeSessionExport(hydrateSession(canonical)).entries).toHaveLength(80);
   });
 
+  it('pages in a steered message that moved outside the recent window without keeping a stale queued copy', () => {
+    const canonical = fixture(2);
+    const waiting = Array.from({ length: 21 }, (_, i): UserMessage => ({
+      ...(canonical.messages[0] as UserMessage), id: `pending-${i}`, status: 'sending',
+      turn: createTurn(`run-${i}`, `pending-${i}`, 'agent', ''),
+    }));
+    canonical.messages.push(...waiting);
+    const beforeSteer = mergeSessionPage(sessionPage(canonical));
+    const selected = waiting.at(-1)!;
+    expect(beforeSteer.messages.at(-1)?.id).toBe(selected.id);
+    canonical.messages.pop();
+    canonical.messages.splice(1, 0, { ...selected, status: 'sent', steeredRunId: 'active', turn: undefined });
+    canonical.revision += 1;
+    const refresh = mergeSessionPage(sessionPage(canonical), beforeSteer);
+    expect(refresh.messages.some(message => message.id === selected.id)).toBe(false);
+    const cursor = refresh.history!.before!;
+    const full = mergeSessionPage(sessionPage(canonical, cursor), refresh, undefined, cursor);
+    expect(full.messages.filter(message => message.id === selected.id)).toMatchObject([{ status: 'sent', steeredRunId: 'active' }]);
+    expect(full.messages.map(message => message.id)).toEqual(canonical.messages.map(message => message.id));
+  });
+
   it('retains device canvas selection while the canvas is deferred', () => {
     const page = sessionPage(fixture());
     page.history.canvasIds = ['older-canvas', 'newest-canvas'];

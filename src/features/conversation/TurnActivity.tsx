@@ -35,6 +35,7 @@ export function TurnActivity({ turn, agentName, permissions, onReview, renderFin
       if (entry.kind === 'assistant') {
         if (entry.canonicalMessageId) {
           const final = renderFinal(entry.canonicalMessageId);
+          if (final === false) return null; // The conversation renders this saved reply after a steer.
           if (final != null) {
             if (renderedFinal.has(entry.canonicalMessageId)) return null;
             renderedFinal.add(entry.canonicalMessageId);

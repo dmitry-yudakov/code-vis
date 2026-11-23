@@ -219,6 +219,7 @@ const assistantBlockSchema = z.discriminatedUnion('kind', [
 
 export const userMessageSchema = z.object({
   mcpFingerprint: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  steeredRunId: z.string().uuid().optional(),
   turn: turnRecordSchema.optional(),
   id: z.string().uuid(),
   role: z.literal('user'),
@@ -260,7 +261,8 @@ export const assistantMessageSchema = z.object({
 export const chatMessageSchema = z.discriminatedUnion('role', [userMessageSchema, assistantMessageSchema]);
 
 /** The newest session format this build reads. A higher version belongs to a newer CodeAI. */
-export const MAX_READABLE_SESSION_VERSION = 18;
+export const MAX_READABLE_SESSION_VERSION = 19;
+export const STEERED_MESSAGE_SESSION_VERSION = 19;
 export const MCP_SESSION_VERSION = 18;
 export const SUSPENDED_TURN_SESSION_VERSION = 17;
 export const ACTIVE_FILE_SESSION_VERSION = 16;
@@ -314,7 +316,7 @@ const sessionBase = {
     z.literal(WORKTREE_SESSION_VERSION), z.literal(DOCKER_WORKTREE_SESSION_VERSION), z.literal(SESSION_SETUP_VERSION), z.literal(TURN_ACTIVITY_SESSION_VERSION),
     z.literal(CONTEXT_USAGE_SESSION_VERSION),
     z.literal(AGENT_ARCHIVE_SESSION_VERSION),
-    z.literal(ACTIVE_FILE_SESSION_VERSION), z.literal(SUSPENDED_TURN_SESSION_VERSION), z.literal(MCP_SESSION_VERSION),
+    z.literal(ACTIVE_FILE_SESSION_VERSION), z.literal(SUSPENDED_TURN_SESSION_VERSION), z.literal(MCP_SESSION_VERSION), z.literal(STEERED_MESSAGE_SESSION_VERSION),
   ]),
   allowAgentArchive: z.boolean().optional(),
   agentArchiveCheck: agentArchiveCheckSchema.optional(),
@@ -339,7 +341,7 @@ const sessionBase = {
 
 function validateSession(
   value: {
-    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18;
+    version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19;
     allowAgentArchive?: boolean;
     agentArchiveCheck?: { messageId: string };
     creationReceipt?: { mcpLaunchFingerprint?: string };
@@ -351,7 +353,7 @@ function validateSession(
     participants: Array<{ id: string; kind: string; displayName: string; lastObservedMessageId?: string; contextUsage?: unknown }>;
     primaryAgentId: string;
     messages: Array<{
-      id: string; role: string; authorId: string; addressedParticipantId?: string; mcpFingerprint?: string;
+      id: string; role: string; authorId: string; addressedParticipantId?: string; mcpFingerprint?: string; steeredRunId?: string;
       turn?: TurnRecord; reportAttachments?: unknown; imageAttachments?: unknown; fileAttachments?: unknown; activeFile?: unknown; mode?: string; level?: string;
     }>;
     pinnedDiagramIds: string[];
@@ -395,6 +397,9 @@ function validateSession(
     ctx.addIssue({ code: 'custom', message: 'Session activity exceeds byte limit.', path: ['messages'] });
   }
   value.messages.forEach((message, index) => {
+    if (message.steeredRunId && value.version < STEERED_MESSAGE_SESSION_VERSION) {
+      ctx.addIssue({ code: 'custom', message: 'Steered messages require format 19.', path: ['messages', index, 'steeredRunId'] });
+    }
     if (message.turn?.lifecycle === 'suspended' && value.version < SUSPENDED_TURN_SESSION_VERSION) {
       ctx.addIssue({ code: 'custom', message: 'Suspended turns require format 17.', path: ['messages', index, 'turn'] });
     }

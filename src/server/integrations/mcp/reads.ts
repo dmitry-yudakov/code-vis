@@ -85,7 +85,7 @@ export async function loadSession(config: AppConfig, id: string, archived = fals
 export async function readSession(config: AppConfig, id: string, archived: boolean) {
   const session = await loadSession(config, id, archived);
   const runs = runRegistry.list(id); const latestUser = session.messages.findLast(m => m.role === 'user');
-  const run = runs.active[0] ?? runs.recent.find(r => r.runId === latestUser?.turn?.runId);
+  const run = runs.active[0] ?? runs.recent.find(r => r.runId === (latestUser?.steeredRunId ?? latestUser?.turn?.runId));
   let remaining = 16 * 1024;
   const messages = [];
   for (const m of [...session.messages].reverse()) {

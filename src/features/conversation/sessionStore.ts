@@ -146,15 +146,19 @@ export function mergeSessionPage(
     return previous;
   });
   const overlaps = prior?.messages.some(message => incoming.has(message.id));
+  // Steering can move a saved queued row before the new recent window. Reopen a contiguous
+  // range in that case so older paging can recover the row with its current delivery state.
+  const displacedQueue = prior && page.session.revision > prior.revision && prior.messages.some(message =>
+    message.role === 'user' && message.turn?.lifecycle === 'queued' && !incoming.has(message.id));
   // After a long absence, a disjoint recent window starts a fresh contiguous range. Its cursor
   // can recover every older message; retaining a disconnected prefix would hide the gap.
   const retained = prior?.messages.filter(message => !incoming.has(message.id)
-    && (overlaps || message.role === 'user' && message.status === 'sending')) || [];
+    && (overlaps && !displacedQueue || message.role === 'user' && message.status === 'sending' && !message.turn)) || [];
   const optimistic = retained.filter(message => message.role === 'user' && message.status === 'sending');
   const older = retained.filter(message => !optimistic.includes(message));
   const sameCanvases = Boolean(prior && JSON.stringify(page.history.canvasIds) === JSON.stringify(prior.history?.canvasIds));
   const history = { ...page.history,
-    before: prior && !prior.history && overlaps ? undefined : older.length ? prior?.history?.before : page.history.before,
+    before: prior && !prior.history && overlaps && !displacedQueue ? undefined : older.length ? prior?.history?.before : page.history.before,
     deferredMessageIds: [...new Set([...older.filter(message => priorDeferred.has(message.id)).map(message => message.id), ...deferred])],
     inlineDeferredMessageIds: [...older.filter(message => priorInline.has(message.id)).map(message => message.id),
       ...(page.history.inlineDeferredMessageIds ?? page.history.deferredMessageIds).filter(id => deferred.has(id))],

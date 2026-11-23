@@ -201,6 +201,37 @@ describe('machine run scheduler', () => {
     expect(later.execute).toHaveBeenCalledOnce();
   });
 
+  it('retains a provisional checkout blocker until both earlier same-session reservations settle', async () => {
+    const registry = new RunRegistry();
+    const input = { sessionId: 'empty-shell', participantId: 'agent', providerKey: 'empty', checkoutId: 'a', access: 'read' as const, cancel: vi.fn() };
+    expect(registry.reserve({ ...input, runId: 'first' }).accepted).toBe(true);
+    expect(registry.reserve({ ...input, runId: 'second', queueIfBusy: true }).accepted).toBe(true);
+    const idea = turn(registry, { checkoutId: 'a', checkoutPath: '/repos/a', waitForCheckout: true });
+    registry.release('first');
+    await scheduled();
+    expect(idea.execute).not.toHaveBeenCalled();
+    registry.release('second');
+    await scheduled();
+    expect(idea.execute).toHaveBeenCalledOnce();
+  });
+
+  it('refuses queued-only removal after the follow-up is promoted', async () => {
+    const registry = new RunRegistry();
+    const active = turn(registry, { sessionId: 'conversation', checkoutId: 'a' });
+    const cancel = vi.fn();
+    registry.reserve({ runId: 'successor', sessionId: 'conversation', participantId: 'agent', providerKey: 'successor',
+      checkoutId: 'a', access: 'read', queueIfBusy: true, cancel });
+    const execute = vi.fn(async () => new Promise<void>(() => undefined));
+    registry.activate('successor', { execute, cancelQueued: vi.fn() });
+    await scheduled();
+    expect(execute).not.toHaveBeenCalled();
+    registry.finish(active.runId);
+    await scheduled();
+    expect(execute).toHaveBeenCalledOnce();
+    expect(await registry.cancel('successor', true)).toBe('started');
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
   it('lets parked ideas yield to checkout recovery and worktree creation', async () => {
     const registry = new RunRegistry();
     const idea = turn(registry, { checkoutPath: '/repos/a', waitForCheckout: true, blockedBySessions: ['idle'] });

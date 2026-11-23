@@ -16,7 +16,7 @@ import {
   AUTO_MODE_SESSION_VERSION, IMAGE_ATTACHMENT_SESSION_VERSION, INSTRUCTIONS_SESSION_VERSION, MAX_READABLE_SESSION_VERSION,
   NATIVE_MODE_SESSION_VERSION, REPORT_EVIDENCE_SESSION_VERSION, SESSION_SETUP_VERSION, durableProjectSchema, durableSessionSchema,
   legacyDurableSessionSchema, previousDurableSessionSchema, publicSessionSchema, agentContextUsageSchema, CONTEXT_USAGE_SESSION_VERSION,
-  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION, ACTIVE_FILE_SESSION_VERSION, SUSPENDED_TURN_SESSION_VERSION, MCP_SESSION_VERSION,
+  projectLogoSchema, repositoryBindingSchema, AGENT_ARCHIVE_SESSION_VERSION, ACTIVE_FILE_SESSION_VERSION, SUSPENDED_TURN_SESSION_VERSION, MCP_SESSION_VERSION, STEERED_MESSAGE_SESSION_VERSION,
 } from '@/shared/sessionSchema';
 import { LOCAL_CODEX_ISOLATION_MESSAGE, isolatesLocalCodex } from '@/shared/globalInstructions';
 import { isNativeMessage } from '@/shared/agentModes';
@@ -88,7 +88,8 @@ export class SessionStoreError extends Error {
 /** A completion decision applies only to the latest fully delivered question/reply pair. */
 export function completedArchiveReply(session: DurableSession, messageId: string): AssistantMessage | undefined {
   const reply = session.messages.at(-1);
-  const user = session.messages.findLast(message => message.role === 'user');
+  const user = session.messages.findLast(message => message.role === 'user'
+    && !(message.status === 'cancelled' && message.delivery === 'not-sent'));
   return reply?.role === 'assistant' && reply.id === messageId && reply.status === 'complete'
     && !reply.planProposed && user?.role === 'user' && user.status === 'sent'
     && user.addressedParticipantId === reply.authorId
@@ -229,8 +230,8 @@ export function publicSession(session: DurableSession): PublicSession {
 /** Workspace subscriptions share this bounded projection; full transcripts stay behind session routes. */
 export function arenaSessionSummary(session: DurableSession): ArenaSessionSummary {
   const latest = session.messages.at(-1);
-  const user = session.messages.findLast(message => message.role === 'user');
-  const runId = user?.role === 'user' ? user.turn?.runId : undefined;
+  const user = session.messages.findLast(message => message.role === 'user' && (latest?.role !== 'assistant' || message.status === 'sent'));
+  const runId = user?.role === 'user' ? user.steeredRunId ?? user.turn?.runId : undefined;
   const preview = latest?.role === 'user' ? latest.text : latest?.blocks.flatMap(block => block.kind === 'markdown' ? [block.markdown] : []).join('\n\n');
   return {
     ...(session.allowAgentArchive !== undefined ? { allowAgentArchive: session.allowAgentArchive } : {}),
@@ -918,6 +919,30 @@ export class SessionStore {
     });
   }
 
+  async markMessageSteered(id: string, messageId: string, activeRunId: string): Promise<void> {
+    await this.mutate(id, session => {
+      const index = session.messages.findIndex(item => item.id === messageId);
+      const message = session.messages[index];
+      if (message?.role === 'user' && message.steeredRunId === activeRunId) return { result: undefined, changed: false };
+      const activeIndex = session.messages.findIndex(item => item.role === 'user' && item.turn?.runId === activeRunId);
+      if (activeIndex < 0 || index <= activeIndex || message?.role !== 'user' || message.turn?.lifecycle !== 'queued') {
+        throw new SessionStoreError('conflict', 'That steering message is unavailable.');
+      }
+      message.status = 'sent';
+      message.steeredRunId = activeRunId;
+      delete message.turn;
+      session.messages.splice(index, 1);
+      let after = activeIndex + 1;
+      for (const item of session.messages.slice(after)) {
+        if (item.role !== 'user' || item.steeredRunId !== activeRunId) break;
+        after += 1;
+      }
+      session.messages.splice(after, 0, message);
+      if (session.version < STEERED_MESSAGE_SESSION_VERSION) session.version = STEERED_MESSAGE_SESSION_VERSION;
+      return { result: undefined, changed: true };
+    });
+  }
+
   async failUserMessage(
     id: string,
     messageId: string,
@@ -987,7 +1012,9 @@ export class SessionStore {
       }
       delete user.delivery;
       upgradeForMessage(session, assistant);
-      session.messages.push(structuredClone(assistant));
+      const userIndex = session.messages.indexOf(user);
+      const nextTurn = session.messages.findIndex((item, index) => index > userIndex && item.role === 'user' && item.status === 'sending');
+      session.messages.splice(nextTurn < 0 ? session.messages.length : nextTurn, 0, structuredClone(assistant));
       participant.lastObservedMessageId = assistant.id;
       session.messages = boundSessionActivity(session.messages, user.turn?.runId);
       return { result: session, changed: true };

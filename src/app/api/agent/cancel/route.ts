@@ -23,7 +23,8 @@ export async function POST(request: Request): Promise<Response> {
   if (!parsed.success) return safeJsonResponse({ error: 'Cancel request is invalid.' }, { status: 400 });
   const record = await webActivityRecorder(request);
   const run = runRegistry.currentRuns.find(item => item.runId === parsed.data.runId);
-  const outcome = await runRegistry.cancel(parsed.data.runId);
+  const outcome = await runRegistry.cancel(parsed.data.runId, parsed.data.queuedOnly);
+  if (outcome === 'started') return safeJsonResponse({ error: 'That queued message has already started.' }, { status: 409 });
   if (outcome === 'unknown-run') {
     return safeJsonResponse({ error: 'That agent run is no longer active.' }, { status: 404 });
   }

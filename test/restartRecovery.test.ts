@@ -4,22 +4,24 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentErrorCode, AgentProcessRun, AgentProcessResult, DurableSession } from '@/shared/types';
+import type { AgentErrorCode, AgentProcessRun, AgentProcessResult, DurableSession, SteerTurn } from '@/shared/types';
 
 const provider = vi.hoisted(() => ({
   jobs: [] as Array<{ input: AgentProcessRun; finish(): void }>,
   finish: false, aborted: 0, cleanup: Promise.resolve(),
   abortCode: 'cancelled' as AgentErrorCode,
+  steer: undefined as SteerTurn | undefined,
 }));
 vi.mock('@/server/agents/providerRegistry', async () => {
   const { AgentRunError } = await import('@/server/agents/agentRunError');
-  return { getProviderAdapters: () => ({ claude: {
+  const adapter = {
     checkHealth: async () => ({ available: true, authenticated: true, supportedModes: ['ask', 'plan', 'agent'] }),
     createRunner: () => ({ async run(input: AgentProcessRun): Promise<AgentProcessResult> {
       const sessionId = input.session.id ?? crypto.randomUUID();
       input.emit({ type: 'session-started', sessionId });
       input.emit({ type: 'turn-started' });
       input.emit({ type: 'phase', phase: 'thinking' });
+      if (provider.steer) input.onSteer?.(provider.steer);
       return new Promise((resolve, reject) => {
         const finish = () => resolve({ finalText: 'Completed remaining work.', sessionId, durationMs: 1, outputBytes: 25 });
         provider.jobs.push({ input, finish });
@@ -30,7 +32,8 @@ vi.mock('@/server/agents/providerRegistry', async () => {
         if (provider.finish) finish();
       });
     } }),
-  } }) };
+  };
+  return { getProviderAdapters: () => ({ claude: adapter, codex: adapter }) };
 });
 vi.mock('@/server/conversation/conversationTitle', () => ({ generateConversationTitle: vi.fn() }));
 vi.mock('@/server/conversation/agentSessionArchive', () => ({ checkSessionCompletion: vi.fn() }));
@@ -45,6 +48,7 @@ import { SuspendedTurns } from '@/server/lifecycle/suspendedTurns';
 import { resumeSuspendedTurns } from '@/server/lifecycle/resumeSuspendedTurns';
 import { getTurnCheckpoints } from '@/server/repository/turnCheckpoints';
 import { POST as archiveSession } from '@/app/api/sessions/[sessionId]/archive/route';
+import { POST as steerMessage } from '@/app/api/agent/steer/route';
 import type { ManagedBridge } from '@/server/lifecycle/managedBridge';
 import type { ServerLifecycleMessage } from '@/shared/codeAiLifecycle';
 
@@ -66,6 +70,7 @@ describe.sequential('planned restart recovery', () => {
     vi.stubEnv('CODEAI_REPOSITORIES_ROOT', path.join(root, 'repositories'));
     vi.stubEnv('CODEAI_REMOTE_ACCESS', 'local');
     provider.jobs = []; provider.finish = false; provider.aborted = 0; provider.cleanup = Promise.resolve(); provider.abortCode = 'cancelled';
+    provider.steer = undefined;
     checkoutId = (await getCheckoutRegistry(getConfig().repositoriesRoot, getConfig().repositoryDiscoveryDepth).list())[0].id;
   });
   afterEach(async () => {
@@ -144,6 +149,72 @@ describe.sequential('planned restart recovery', () => {
     expect(saved.messages[1].mode).toBe('plan');
     expect(await journal.list()).toEqual([]);
   }, 35_000);
+
+  it('restores same-session follow-ups in transcript order even when journal timestamps tie', async () => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    const second = await send({ queueIfBusy: true, text: 'Second in this session' }, first.session);
+    const third = await send({ queueIfBusy: true, text: 'Third in this session' }, first.session);
+    expect(runRegistry.list(first.session.id).followUps?.map(run => run.runId)).toEqual([second.runId, third.runId]);
+    const journal = new SuspendedTurns(dataDir);
+    const later = (await journal.get(third.runId))!;
+    const earlier = (await journal.get(second.runId))!;
+    const list = SuspendedTurns.prototype.list;
+    vi.spyOn(SuspendedTurns.prototype, 'list').mockResolvedValueOnce([{ ...later, acceptedAt: earlier.acceptedAt }, earlier]);
+    // Finish the provider so its saved session ID differs from the pre-start snapshot a follow-up may have used.
+    await journal.save({ ...earlier, providerSessionId: undefined });
+    await journal.save({ ...later, providerSessionId: undefined });
+    expect(await runRegistry.holdStartupRecovery()).toBe('live-runs');
+    expect(runRegistry.beginDrain()).toBe('acquired');
+    provider.jobs[0].finish();
+    await runRegistry.wait(first.runId);
+    runRegistry.finish(second.runId);
+    runRegistry.finish(third.runId);
+    await coldStart();
+    vi.spyOn(SuspendedTurns.prototype, 'list').mockImplementation(list);
+    await vi.waitFor(() => expect(provider.jobs[1]?.input.runId).toBe(second.runId));
+    provider.jobs[1].finish();
+    await runRegistry.wait(second.runId);
+    await vi.waitFor(() => expect(provider.jobs[2]?.input.runId).toBe(third.runId));
+    provider.jobs[2].finish();
+    await runRegistry.wait(third.runId);
+    const saved = await getSessionStore(dataDir).getSession(first.session.id);
+    expect(saved.messages.map(message => message.role === 'user' ? message.text : message.role))
+      .toEqual([first.request.text, 'assistant', second.request.text, 'assistant', third.request.text, 'assistant']);
+  });
+
+  it('keeps a rejected steer queued and never promotes an uncertain steer after the active turn ends', async () => {
+    const store = getSessionStore(dataDir);
+    const session = await store.createSession({ provider: 'codex', checkoutId });
+    let finishSteer!: (outcome: 'unknown') => void;
+    const steer = vi.fn<SteerTurn>().mockResolvedValueOnce('rejected').mockImplementationOnce(() => new Promise(resolve => { finishSteer = resolve; }));
+    provider.steer = steer;
+    const first = await send({}, session);
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    const second = await send({ queueIfBusy: true, imageAttachments: [], text: 'Change direction' }, session);
+    const journal = new SuspendedTurns(dataDir);
+    const requestSteer = (expectedText: string) => steerMessage(new Request('http://localhost/api/agent/steer', {
+      method: 'POST', body: JSON.stringify({ runId: second.runId, activeRunId: first.runId, expectedText }),
+    }));
+    expect((await requestSteer('Stale text')).status).toBe(409);
+    expect(steer).not.toHaveBeenCalled();
+    expect((await requestSteer(second.request.text)).status).toBe(409);
+    expect(await journal.get(second.runId)).toMatchObject({ state: 'ready' });
+    const uncertain = requestSteer(second.request.text);
+    await vi.waitFor(() => expect(steer).toHaveBeenCalledTimes(2));
+    expect(await journal.get(second.runId)).toMatchObject({ state: 'resuming' });
+    provider.jobs[0].finish();
+    const beforeOutcome = await store.getSession(session.id);
+    finishSteer('unknown');
+    expect(beforeOutcome.messages.some(message => message.role === 'assistant')).toBe(false);
+    expect((await uncertain).status).toBe(409);
+    await runRegistry.wait(first.runId);
+    expect(provider.jobs).toHaveLength(1);
+    expect(runRegistry.list(session.id).active).toEqual([]);
+    expect(await journal.get(second.runId)).toBeUndefined();
+    const saved = await store.getSession(session.id);
+    expect(saved.messages.find(message => message.id === second.request.messageId)).toMatchObject({ status: 'failed', delivery: 'possibly-sent' });
+  });
 
   it('rejects admission when the full waiting request cannot be saved', async () => {
     vi.spyOn(SuspendedTurns.prototype, 'save').mockRejectedValueOnce(new Error('Disk unavailable'));

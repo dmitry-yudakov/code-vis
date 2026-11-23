@@ -1168,6 +1168,19 @@ export class CodexProcessRunner implements AgentProcessRunner {
           turnId = turn.id;
           reconcileApprovals();
           if (closingInput) interruptTurn(sessionId, turnId);
+          if (live()) input.onSteer?.(async (messageId, text) => {
+            if (!live() || closingInput || input.signal.aborted || child.stdin.destroyed) return 'rejected';
+            const expectedTurnId = turn.id as string;
+            try {
+              const reply = record(await request('turn/steer', {
+                threadId: sessionId, expectedTurnId, clientUserMessageId: messageId,
+                input: [{ type: 'text', text, text_elements: [] }],
+              }, 5_000));
+              return reply?.turnId === expectedTurnId ? 'sent' : 'unknown';
+            } catch (error) {
+              return error instanceof RpcResponseError ? 'rejected' : 'unknown';
+            }
+          });
         } catch (error) {
           stopWith(error);
         }

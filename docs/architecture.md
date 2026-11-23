@@ -601,7 +601,10 @@ stored copy and no route that serves one.
    contains neither a checkout id nor transcript.
 2. Refuse unavailable/foreign/stale repository bindings and foreign-host sessions before provider
    spawn. Reserve the session, provider session, checkout access, and bounded queue position in
-   `src/server/runs/runRegistry.ts`; conflicts are 409 and queue overflow is 429 before persistence.
+   `src/server/runs/runRegistry.ts`. The conversation composer can opt into same-session queuing
+   with `queueIfBusy`. This POST returns durable acceptance while the active stream stays attached.
+   The scheduler promotes one turn per session in saved order, and each follow-up uses one of
+   the machine's 32 waiting places. Conflicts are 409 and queue overflow is 429 before persistence.
 3. Append the user message idempotently, then activate its reservation. The machine executes up to
    `CODEAI_MAX_CONCURRENT_RUNS` eligible turns (default 2): Ask/Plan are checkout readers, Agent is
    an exclusive writer, and a waiting writer blocks later readers on that checkout without blocking
@@ -618,6 +621,10 @@ stored copy and no route that serves one.
    restart, with execution claimed before provider/checkpoint effects. Acceptance headers report the
    run id and current state. `POST /api/agent/queued-message` compares and saves queued message text
    under a promotion guard, retaining evidence, mode and identity; cancellation waits for this save.
+   A text-only follow-up for the same Codex participant and mode can **Steer** the active turn.
+   `POST /api/agent/steer` compares the saved text and targets the exact CodeAI run and Codex turn.
+   It claims the queued request in the restart journal before sending `turn/steer`. A provider
+   rejection keeps the message queued. Uncertain delivery stops promotion to prevent a second send.
 4. When the scheduler starts the turn, build the historical prompt delta from the current canonical
    record and a bounded per-run directory under `<dataDir>/run-attachments/` (`code-ai-run-*`), outside
    the repository and outside the system temp directory an Auto sandbox leaves writable, holding

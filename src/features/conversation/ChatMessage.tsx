@@ -32,7 +32,7 @@ function attachmentSummary(records: DiagramAttachmentRecord[]): string {
   return `${parts.join(' and ')} attached`;
 }
 
-export function ChatMessage({ message, theme, participants, activeDiagramId, detailsDeferred, detailsLoading, onLoadDetails, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onEditQueuedMessage, navigation }: {
+export function ChatMessage({ message, theme, participants, activeDiagramId, detailsDeferred, detailsLoading, onLoadDetails, running, liveState, executePlanBlocked, onSelectDiagram, onRetry, onExecutePlan, onEditQueuedMessage, onSteer, onRemoveQueued, navigation }: {
   message: ChatMessageType;
   detailsDeferred?: boolean;
   detailsLoading?: boolean;
@@ -47,12 +47,16 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, det
   onRetry?(text: string, participantId: string, mode: AgentMode, reportIds: string[], imageCount: number, files?: TextFile[], uncertain?: boolean, activeFile?: import('@/shared/activeFileContext').ActiveFileContext): void;
   onExecutePlan?(participantId: string): void;
   onEditQueuedMessage?(messageId: string, text: string, expectedText: string): Promise<void>;
+  onSteer?(): Promise<void>;
+  onRemoveQueued?(): Promise<void>;
   navigation?: ReactNode;
 }) {
   const [copyState, setCopyState] = useState<'copied' | 'failed'>();
   const [edit, setEdit] = useState<{ text: string; original: string }>();
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string>();
+  const [queueAction, setQueueAction] = useState<'steer' | 'remove'>();
+  const [queueError, setQueueError] = useState<string>();
   useEffect(() => {
     if (copyState !== 'copied') return;
     const timer = setTimeout(() => setCopyState(undefined), 2000);
@@ -61,6 +65,13 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, det
   const author = participants.find((participant) => participant.id === message.authorId);
   if (message.role === 'user') {
     const addressee = participants.find((participant) => participant.id === message.addressedParticipantId);
+    const runQueueAction = async (kind: 'steer' | 'remove', action: () => Promise<void>) => {
+      setQueueError(undefined);
+      setQueueAction(kind);
+      try { await action(); }
+      catch (error) { setQueueError(error instanceof Error ? error.message : 'The queued message could not be updated.'); }
+      finally { setQueueAction(undefined); }
+    };
     return (
       <article className={`chat-message user ${message.status}`} data-navigation-id={`message:${message.id}`} tabIndex={-1}>
         <div className="message-meta">
@@ -98,14 +109,19 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, det
             ? detailsLoading && <p role="status">Loading file contents…</p>
             : <pre>{file.text}</pre>}
         </Disclosure>)}
-        {(liveState || message.status !== 'sent') && (
+        {(liveState || message.status !== 'sent' || message.steeredRunId) && (
           <div className="message-state">
-            <span>{liveState === 'queued' ? 'Queued' : liveState === 'needs-you' ? 'Needs approval' : liveState ? 'Working' : message.status === 'sending' ? 'Checking delivery' : message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
-            {liveState === 'queued' && onEditQueuedMessage && !edit && <Button type="button" onClick={() => { setEdit({ text: message.text, original: message.text }); setEditError(undefined); }}>Edit message</Button>}
+            <span>{message.steeredRunId ? 'Steered active turn' : liveState === 'queued' ? 'Queued' : liveState === 'needs-you' ? 'Needs approval' : liveState ? 'Working' : message.status === 'sending' ? 'Checking delivery' : message.status}{message.delivery === 'possibly-sent' ? ' · delivery uncertain' : ''}</span>
+            {liveState === 'queued' && !edit && <div className="message-state-actions">
+              {(onSteer || queueAction === 'steer') && <Button type="button" disabled={Boolean(queueAction)} onClick={() => { if (onSteer) void runQueueAction('steer', onSteer); }}>{queueAction === 'steer' ? 'Steering…' : 'Steer'}</Button>}
+              {onEditQueuedMessage && <Button type="button" aria-label="Edit message" disabled={Boolean(queueAction)} onClick={() => { setEdit({ text: message.text, original: message.text }); setEditError(undefined); }}>Edit</Button>}
+              {onRemoveQueued && <Button type="button" disabled={Boolean(queueAction)} onClick={() => void runQueueAction('remove', onRemoveQueued)}>{queueAction === 'remove' ? 'Removing…' : 'Remove'}</Button>}
+            </div>}
             {onRetry && !running && !liveState && message.status !== 'sending' && <Button type="button" onClick={() => onRetry(message.text, message.addressedParticipantId, message.mode || 'ask',
               message.reportAttachments?.map((report) => report.reportId) || [], message.imageAttachments?.length || 0, message.fileAttachments?.map(({ name, text }) => ({ name, text })), message.status === 'sending' || message.delivery === 'possibly-sent', message.activeFile)}>Retry</Button>}
           </div>
         )}
+        {queueError && <Alert severity="error">{queueError}</Alert>}
       </article>
     );
   }

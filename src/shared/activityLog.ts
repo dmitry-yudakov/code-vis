@@ -26,6 +26,7 @@ export const activityLabels = {
   'participant.primary': 'Main agent changed',
   'message.accept': 'User message accepted',
   'message.edit': 'Queued message edit accepted',
+  'message.steer': 'Steering message accepted',
   'run.cancel': 'Run cancellation requested',
   'run.allow': 'Permission allowed',
   'run.deny': 'Permission denied',

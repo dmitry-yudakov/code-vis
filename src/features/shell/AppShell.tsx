@@ -285,6 +285,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [participantBusy, setParticipantBusy] = useState(false);
   const [preparingSends, setPreparingSends] = useState<string[]>([]);
   const sendingSessions = useRef(new Set<string>());
+  const [queueingSends, setQueueingSends] = useState<string[]>([]);
+  const queueingSessions = useRef(new Set<string>());
   const [unconfirmedSends, setUnconfirmedSends] = useState<string[]>([]);
   const acceptanceChecks = useRef(new Map<string, { messageId: string; accept(runId?: string): void; check(): Promise<void> }>());
   const [reconnectingSends, setReconnectingSends] = useState<string[]>([]);
@@ -438,6 +440,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [needsRepository, panelLayout.openRepository, session?.id]);
   const focusedRun = sessionId ? runsBySession[sessionId] : undefined;
   const focusedRunId = focusedRun?.runId || (sessionId ? reconnectingRuns.current.get(sessionId)?.runId : undefined);
+  const focusedMachine = arena.machines.find(item => item.machine.id === machineId);
+  const focusedHead = focusedMachine?.runs.active.find(run => run.sessionId === sessionId);
+  const focusedQueue = focusedMachine?.runs.followUps?.filter(run => run.sessionId === sessionId);
   const focusedRunOutcome = sessionId ? runOutcomesBySession[sessionId] : undefined;
   const sessionRunning = Boolean(focusedRun) || Boolean(sessionId && (preparingSends.includes(sessionId) || reconnectingSends.includes(sessionId)));
   const recovery = useTurnCheckpoint({ sessionId, revision: session?.revision, running: sessionRunning, apiPath,
@@ -593,6 +598,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       return undefined;
     }
   }, [apiPath, applyServerSnapshot, machineId]);
+
+  const revisionWithQueue = focusedMachine?.machine.state === 'online'
+    && (focusedQueue?.length || focusedHead?.followUp || focusedMachine.runs.recent.some(run => run.sessionId === sessionId && run.followUp)
+      || session?.messages.some(message => message.role === 'user' && message.turn?.lifecycle === 'queued' && message.id !== focusedRun?.userMessageId))
+    ? focusedMachine.sessions.find(item => item.id === sessionId)?.revision : undefined;
+  useEffect(() => {
+    if (sessionId && session && revisionWithQueue !== undefined && revisionWithQueue > session.revision) {
+      void refreshSession(sessionId);
+    }
+  }, [refreshSession, revisionWithQueue, session?.revision, sessionId]);
 
   const refreshFocusedConversation = useCallback(async function refreshFocusedConversation() {
     if (navigationKeyRef.current !== navigationKey) return;
@@ -1988,8 +2003,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     return { receivedFinal, suspended, streamError, userMessageId, runId: streamRunId };
   }, [mutateSession, refreshSession, repositoryApiBase, setRunOutcome, updatePreferences, updateRun, workspace.updateView]);
 
-  const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }) => {
-    if (!session || runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id) || reconnectingRuns.current.has(session.id) || acceptanceChecks.current.has(session.id) || recovery.busy) return;
+  const send = useCallback(async (override?: { text: string; mode: AgentMode; participantId?: string }, queue = false) => {
+    if (!session || queueingSessions.current.has(session.id) || reconnectingRuns.current.has(session.id)
+      || acceptanceChecks.current.has(session.id)) return;
+    if (!queue && (runsBySessionRef.current[session.id] || sendingSessions.current.has(session.id) || recovery.busy)) return;
     if (lifecycle.busy) {
       notify({ key: 'send', tone: 'warning', message: 'CodeAI is building a new release of itself. Send again once it has restarted; your draft is kept.' });
       return;
@@ -2034,12 +2051,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     // Each agent's own choice: an Execute plan turn may address an agent other than the selected one.
     const turnModel = offeredModelSelection(agentModelSelection(view, preferences, turnAgent), turnProviderHealth);
     supersede('send');
-    sendingSessions.current.add(session.id);
-    setPreparingSends((current) => [...current, session.id]);
+    const inFlight = queue ? queueingSessions.current : sendingSessions.current;
+    const setInFlight = queue ? setQueueingSends : setPreparingSends;
+    inFlight.add(session.id);
+    setInFlight((current) => [...current, session.id]);
     let reconnectAfterSend = false;
     let acceptedRunId: string | undefined;
     try {
-      setRunOutcome(session.id);
+      if (!queue) setRunOutcome(session.id);
       const canvasData = selectedAtSend.length < sentCanvasIds.length ? await loadCanvases(session.id) : undefined;
       const canvasSession = canvasData ? { ...session, ...canvasData } : session;
       const selected = sentCanvasIds.flatMap(id => {
@@ -2134,13 +2153,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       };
       const activeAtSend = session.activeDiagramId;
       const navigationAtSend = navigationRevisions.current.get(session.id) || 0;
-      mutateSession(session.id, (current) => ({
+      if (!queue) mutateSession(session.id, (current) => ({
         ...current,
         // A sketch-only turn would otherwise title the session with the whole synthesized instruction.
         title: current.messages.length === 0 ? (typed ? typed.slice(0, 56) : 'Sketch session') : current.title,
         messages: [...current.messages, userMessage],
       }));
-      putRun({
+      if (!queue) putRun({
         sessionId: session.id,
         participantId: turnAgent.id,
         userMessageId: userId,
@@ -2155,7 +2174,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         permissions: [],
       });
       const controller = new AbortController();
-      runControllers.current.set(session.id, controller);
+      if (!queue) runControllers.current.set(session.id, controller);
       let streamError: Extract<AgentEvent, { type: 'error' }> | undefined;
       let streamRunId: string | undefined;
       let blockingRun: RunDescriptor | undefined;
@@ -2166,11 +2185,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         if (runId) {
           streamRunId = runId;
           acceptedRunId = runId;
-          updateRun(session.id, (run) => ({ ...run, runId, userMessageId: userId }));
+          if (!queue) updateRun(session.id, (run) => ({ ...run, runId, userMessageId: userId }));
         }
         if (accepted) return;
         accepted = true;
-        mutateSession(session.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user' && message.status === 'sending'
+        if (!queue) mutateSession(session.id, (current) => ({ ...current, messages: current.messages.map((message) => message.id === userId && message.role === 'user' && message.status === 'sending'
           ? { ...message, status: 'sent' } : message) }));
         if (override) return;
         workspace.updateView(session.id, (current) => withPendingReports(
@@ -2203,6 +2222,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         ...(sentImages.length ? { imageAttachments: imagePayload.map(({ dataUrl }) => ({ dataUrl })) } : {}),
         ...(sentFiles.length ? { fileAttachments: sentFiles } : {}),
         ...(sentActiveFile ? { activeFile: sentActiveFile } : {}),
+        ...(queue ? { queueIfBusy: true } : {}),
         mode: turnMode,
         ...turnModel,
       });
@@ -2221,6 +2241,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         const runId = response.headers.get('X-CodeAI-Run-Id') || undefined;
         if (runId) acknowledge(runId);
         else await resolveAcceptance();
+        if (queue && accepted) {
+          void response.body?.cancel().catch(() => undefined);
+          await Promise.all([refreshSession(session.id), arena.refresh()]);
+          return;
+        }
+        if (queue) throw new Error('Queue acceptance could not be confirmed.');
         const outcome = await consumeStream(response, {
           sessionId: session.id,
           mode: turnMode,
@@ -2248,12 +2274,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             let retryAvailable = false;
             const acceptDelivery = (runId?: string) => {
               acknowledge(runId);
-              reconnectAfterSend = true;
-              reconnectingRuns.current.set(session.id, { runId: streamRunId, machineId });
-              setReconnectingSends((current) => current.includes(session.id) ? current : [...current, session.id]);
               acceptanceChecks.current.delete(session.id);
               setUnconfirmedSends((current) => current.filter((id) => id !== session.id));
               dismissToast(key);
+              if (queue) {
+                void refreshSession(session.id);
+                void arena.refresh();
+                return;
+              }
+              reconnectAfterSend = true;
+              reconnectingRuns.current.set(session.id, { runId: streamRunId, machineId });
+              setReconnectingSends((current) => current.includes(session.id) ? current : [...current, session.id]);
               setRunOutcome(session.id, { runId: streamRunId, missingProviderSession: false,
                 message: 'The instruction was accepted. Reconnecting to its saved activity and execution status.' });
               if (!sendingSessions.current.has(session.id) && machineIdRef.current === machineId && projectIdRef.current === projectId) {
@@ -2300,6 +2331,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             setUnconfirmedSends((current) => current.includes(session.id) ? current : [...current, session.id]);
             announce();
           }
+          if (queue) {
+            if (definitelyRejected) notifyError(error, 'Could not queue the message. Your draft is kept.', 'send');
+            await refreshSession(session.id);
+            return;
+          }
           if (accepted) {
             reconnectAfterSend = true;
             reconnectingRuns.current.set(session.id, { runId: streamRunId, machineId });
@@ -2328,16 +2364,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           await refreshSession(session.id);
         }
       } finally {
-        removeRun(session.id, streamRunId);
+        if (!queue) removeRun(session.id, streamRunId);
       }
     } catch (error) {
       notifyError(error, 'Could not prepare this instruction. The draft is preserved.', 'send');
     } finally {
-      sendingSessions.current.delete(session.id);
-      setPreparingSends((current) => current.filter((id) => id !== session.id));
+      inFlight.delete(session.id);
+      setInFlight((current) => current.filter((id) => id !== session.id));
       if (reconnectAfterSend && machineIdRef.current === machineId && projectIdRef.current === projectId) void recoverRuns.current(session.id, acceptedRunId);
     }
-  }, [activeAgent, apiPath, applyServerSnapshot, composerDraft, consumeStream, loadCanvases, dismissToast, draftIdentity, flushAnnotations, health, lifecycle.busy, machineId, mode, mutateSession, notify, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, projectId, putRun, recovery.busy, refreshSession, removeRun, reports.reports, repositoryFiles.activeFile, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
+  }, [activeAgent, apiPath, applyServerSnapshot, arena.refresh, composerDraft, consumeStream, loadCanvases, dismissToast, draftIdentity, flushAnnotations, health, lifecycle.busy, machineId, mode, mutateSession, notify, panelLayout.openRepository, pendingAttachmentIds, pendingReportIds, projectId, putRun, recovery.busy, refreshSession, removeRun, reports.reports, repositoryFiles.activeFile, session, setRunOutcome, updatePendingImages, updatePendingFiles, updateRun, view?.modelSelections, preferences, workspace.updateView]);
 
   const newerFormatNotice = newerFormatSessions > 0 && !workspaceMachineId && !newerFormatNoticeDismissed
     ? `${newerFormatSessions} ${newerFormatSessions === 1 ? 'session was' : 'sessions were'} written by a newer CodeAI and ${newerFormatSessions === 1 ? 'is' : 'are'} hidden here.`
@@ -2744,7 +2780,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           }
           setRunOutcome(run.sessionId);
           const participant = findAgentParticipant(recoveredSession.participants, run.participantId);
-          const acceptedMessage = latestRunUserMessage(recoveredSession.messages, run.participantId);
+          const acceptedMessage = recoveredSession.messages.find((message): message is UserMessage => message.role === 'user' && message.turn?.runId === run.runId)
+            ?? (!run.followUp && !data.followUps?.some(queued => queued.sessionId === run.sessionId)
+              ? latestRunUserMessage(recoveredSession.messages, run.participantId) : undefined);
           const recoveredMode = run.mode || acceptedMessage?.mode || participant?.defaultMode || 'agent';
           putRun({
             runId: run.runId,
@@ -2819,6 +2857,22 @@ export function AppShell({ children }: { children: ReactNode }) {
       for (const controller of attachmentControllers.values()) controller.abort();
     };
   }, [apiPath, applyServerSnapshot, consumeStream, finishReconnect, loading, machineId, mutateSession, projectId, putRun, refreshSession, removeRun, setRunOutcome, updateRun, workspace.ensure, workspace.ready, workspace.updateView]);
+
+  const followedRuns = useRef(new Map<string, string>());
+  useEffect(() => {
+    const machine = arena.machines.find(item => item.machine.id === machineId && item.machine.state === 'online');
+    if (loading || !workspace.ready || !machine) return;
+    const loaded = new Set(sessionsRef.current.map(item => item.id));
+    for (const id of followedRuns.current.keys()) if (!loaded.has(id)) followedRuns.current.delete(id);
+    const recent = machine.runs.recent.filter(run => run.outcome !== 'cancelled' || run.startedAt !== undefined);
+    const latest = new Map([...recent, ...machine.runs.active].map(run => [run.sessionId, run]));
+    for (const run of latest.values()) {
+      if (!run.followUp || !loaded.has(run.sessionId) || runsBySession[run.sessionId] || sendingSessions.current.has(run.sessionId)
+        || followedRuns.current.get(run.sessionId) === run.runId) continue;
+      followedRuns.current.set(run.sessionId, run.runId);
+      void recoverRuns.current(run.sessionId, run.runId, true);
+    }
+  }, [arena.machines, loading, machineId, preparingSends, runsBySession, workspace.ready]);
 
   const executePlan = useCallback((participantId: string) => {
     const planAgent = findAgentParticipant(session?.participants || [], participantId);
@@ -3578,17 +3632,46 @@ export function AppShell({ children }: { children: ReactNode }) {
               turn={focusedRun?.turn}
               liveMessageId={focusedRun?.userMessageId}
               liveState={focusedRun?.state}
+              queuedRuns={focusedQueue}
+              queueReady={Boolean(focusedRun?.runId)}
+              queueing={Boolean(sessionId && queueingSends.includes(sessionId))}
               onEditQueuedMessage={async (messageId, text, expectedText) => {
-                if (!focusedRunId || !sessionId) throw new Error('Reload the session to check its queued turn.');
+                const message = session.messages.find(item => item.id === messageId);
+                const runId = message?.role === 'user' ? message.turn?.runId : undefined;
+                if (!runId || !sessionId) throw new Error('Reload the session to check its queued turn.');
                 const response = await fetch(apiPath('/api/agent/queued-message'), {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ runId: focusedRunId, text, expectedText }),
+                  body: JSON.stringify({ runId, text, expectedText }),
                 });
                 const data = await response.json() as { error?: string };
                 if (!response.ok) throw new Error(data.error || 'Could not save. Your edit is kept.');
                 mutateSession(sessionId, current => ({ ...current, messages: current.messages.map(message =>
                   message.id === messageId && message.role === 'user' ? { ...message, text } : message) }));
                 await refreshSession(sessionId);
+              }}
+              onSteer={async (runId, activeRunId, expectedText) => {
+                try {
+                  const response = await fetch(apiPath('/api/agent/steer'), {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ runId, activeRunId, expectedText }),
+                  });
+                  if (!response.ok) {
+                    const data = await response.json().catch(() => ({})) as { error?: string };
+                    throw new Error(data.error || 'Steering could not be confirmed. Check the message before trying again.');
+                  }
+                } finally {
+                  await Promise.allSettled([refreshSession(session.id), arena.refresh()]);
+                }
+              }}
+              onRemoveQueued={async (runId) => {
+                const response = await fetch(apiPath('/api/agent/cancel'), {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, queuedOnly: true }),
+                });
+                await Promise.allSettled([refreshSession(session.id), arena.refresh()]);
+                if (!response.ok) {
+                  const data = await response.json().catch(() => ({})) as { error?: string };
+                  throw new Error(data.error || 'Could not remove the queued message.');
+                }
               }}
               retryBlocked={Boolean(sessionId && (sessionRunning || unconfirmedSends.includes(sessionId)
                 || arena.discovery.active.some(run => run.sessionId === sessionId && run.machineId === machineId)))}
@@ -3645,6 +3728,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               onAddAgent={(provider, role) => void addAgent(provider, role)}
               onHandoff={prefillHandoff}
               onSend={() => void send()}
+              onQueue={() => void send(undefined, true)}
               onCancel={() => void cancelRun()}
               onRemoveAttachment={removeAttachment}
               onRemoveReport={removeReport}

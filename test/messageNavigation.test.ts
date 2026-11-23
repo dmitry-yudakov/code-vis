@@ -30,6 +30,12 @@ describe('conversation navigation stops', () => {
     expect(conversationNavigation([{ ...user('a'), turn }, reply('final'), user('b')]).responses).toEqual(['message:final']);
   });
 
+  it('visits the saved reply once after steering', () => {
+    const turn = finishTurn(activity('a'), 'completed', { attempt: 1, messageId: 'final', key: 'last' });
+    expect(conversationNavigation([{ ...user('a'), turn }, { ...user('steer'), steeredRunId: turn.runId }, reply('final'), user('b')]))
+      .toEqual({ users: ['message:a', 'message:steer', 'message:b'], responses: ['message:final'] });
+  });
+
   it.each(['completed', 'cancelled', 'failed', 'interrupted'] as const)('includes the last assistant activity of a %s turn without a canonical reply', lifecycle => {
     const turn = finishTurn(activity('a'), lifecycle);
     const last = turn.entries.findLast(entry => entry.kind === 'assistant')!;

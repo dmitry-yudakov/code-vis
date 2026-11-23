@@ -191,7 +191,7 @@ export interface DurableSession {
    * version 7 plus images on user messages, written by the first message that carries one.
    * Version 9 adds Native writing modes and levels, only when a message needs them.
    */
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19;
   allowAgentArchive?: boolean;
   agentArchiveCheck?: AgentArchiveCheck;
   /** Server-only receipt; never included in public sessions. */
@@ -509,6 +509,7 @@ export type AgentMode = 'ask' | 'plan' | 'agent' | 'edits' | 'auto' | 'full';
 export interface UserMessage {
   /** Private integration acceptance identity, removed from public snapshots. */
   mcpFingerprint?: string;
+  steeredRunId?: string;
   turn?: import('./turnActivity').TurnRecord;
   id: string;
   role: 'user';
@@ -555,7 +556,7 @@ export interface DiagramAnnotation {
 
 /** Public server snapshot. Private provider sessions and cursors are removed. */
 export interface PublicSession {
-  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18;
+  version: 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19;
   allowAgentArchive?: boolean;
   agentArchiveCheck?: AgentArchiveCheck;
   worktree?: SessionWorktree;
@@ -722,6 +723,8 @@ export interface RunDescriptor {
   runId: string;
   sessionId: string;
   participantId: string;
+  followUp?: true;
+  steerRunId?: string;
   /** Latest accepted mode for this turn, including a change still being applied. */
   mode?: AgentMode;
   state: RunState;
@@ -742,6 +745,7 @@ export interface RunDescriptor {
 export interface RunDiscovery {
   active: RunDescriptor[];
   recent: RunDescriptor[];
+  followUps?: RunDescriptor[];
 }
 
 export interface ArenaSnapshot {
@@ -782,6 +786,7 @@ export interface AgentMessageRequest {
   imageAttachments?: ImageAttachmentRequest[];
   fileAttachments?: import('./textFiles').TextFile[];
   activeFile?: import('./activeFileContext').ActiveFileContext;
+  queueIfBusy?: boolean;
   /** Omitted means `ask`; anything outside the enum is rejected with 400. */
   mode?: AgentMode;
   /** Omitted means Default. Must be an `id` in the addressed provider's `models`, or 400. */
@@ -872,6 +877,7 @@ export interface AgentProcessRun {
   permissions?: PermissionGate;
   signal: AbortSignal;
   emit(event: AgentProcessEvent): void;
+  onSteer?(steer?: SteerTurn): void;
   /** Already validated. Undefined model means the installation default; undefined effort sends none. */
   model?: string;
   effort?: string;
@@ -883,6 +889,8 @@ export interface AgentProcessRun {
   /** Server-resolved; Docker only: the turn's choice is on, so the worker may see the allowlisted entries. */
   userCustomizations?: boolean;
 }
+
+export type SteerTurn = (messageId: string, text: string) => Promise<'sent' | 'rejected' | 'unknown'>;
 
 export interface AgentProcessResult {
   finalBlockId?: string;

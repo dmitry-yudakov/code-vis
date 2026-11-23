@@ -295,8 +295,8 @@ export interface PendingReportChip {
 }
 
 export function InstructionComposer({
-  agentControl, settingsControl, draft, running, cancelReady = true, sendBlocked, autoFocus, autoFocusRequest, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
-  modelChoices, modelSelection, sendContext, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onCancel, onArchiveAllowedChange,
+  agentControl, settingsControl, draft, running, cancelReady = true, queueReady, queueing, sendBlocked, autoFocus, autoFocusRequest, focusRequest, onFocusRequestHandled, attached, reports = [], images = [], files = [], onRemoveFile, activeDiagramId, markCounts, mode, unsupportedModes,
+  modelChoices, modelSelection, sendContext, theme, recentCanvases, continuation, onChange, onModeChange, onModelSelectionChange, onSend, onQueue, onCancel, onArchiveAllowedChange,
   onNewChat, onArchive, newChatDisabledReason, archiveDisabledReason,
   onRemoveAttachment, onRemoveReport, onAddImages, onRemoveImage, onOpenImage, onToggleAttachment, onOpenHistory, onNewSketch, onOpenReports,
   execution = 'local', instructions, securityLevel = 'guarded', provider = 'claude', isolated = false,
@@ -316,6 +316,8 @@ export function InstructionComposer({
   continuation: ComposerContinuation;
   running: boolean;
   cancelReady?: boolean;
+  queueReady?: boolean;
+  queueing?: boolean;
   sendBlocked?: string;
   autoFocus?: boolean;
   /** Session-opening focus is skipped on phones and touch devices. */
@@ -344,6 +346,7 @@ export function InstructionComposer({
   onModeChange(mode: AgentMode): void;
   onModelSelectionChange(selection: ModelSelection): void;
   onSend(): void;
+  onQueue?(): void;
   onCancel(): void;
   /** Existing sessions handle /autoclose (on by default) without an agent turn. */
   onArchiveAllowedChange?(allowed: boolean): Promise<void>;
@@ -379,8 +382,10 @@ export function InstructionComposer({
   const context = [sendContext, mode, modelSelection.model, modelSelection.effort,
     attached.map(canvasTargetId).join(','), reports.map(report => report.id).join(','),
     images.length ? images : undefined, files.length ? files : undefined, JSON.stringify(activeFile)];
-  const latestSend = useRef({ draft, context, send: onSend, running, blocked: sendBlocked, mounted: true });
-  latestSend.current = { draft, context, send: onSend, running, blocked: sendBlocked, mounted: true };
+  const send = running ? queueReady ? onQueue : undefined : onSend;
+  const blockedSend = Boolean(sendBlocked || queueing);
+  const latestSend = useRef({ draft, context, send, running, blocked: blockedSend, mounted: true });
+  latestSend.current = { draft, context, send, running, blocked: blockedSend, mounted: true };
   useEffect(() => () => { latestSend.current.mounted = false; }, []);
   // A drawing, a report, or an image is an instruction in itself, so such a turn does not need typed text.
   const canSend = Boolean(value.trim()) || attached.some((canvas) => canvas.kind === 'sketch') || reports.length > 0 || images.length > 0 || files.length > 0;
@@ -390,7 +395,7 @@ export function InstructionComposer({
     const submittedContext = latestSend.current.context;
     const command = localCommands ? chatCommand(submitted) : undefined;
     if (!command) {
-      if (canSend && !running && !sendBlocked) onSend();
+      if (canSend && !blockedSend) send?.();
       return;
     }
     commandInput.dismiss();
@@ -418,8 +423,8 @@ export function InstructionComposer({
         onChange(remaining);
         // Navigation, a new run or changed send choices leave the remaining message as a draft.
         const owner = latestSend.current;
-        if (remaining && owner.mounted && owner.draft === draft && !owner.running && !owner.blocked
-          && owner.context.every((item, index) => item === submittedContext[index])) owner.send();
+        if (remaining && owner.mounted && owner.draft === draft && (!owner.running || running) && !owner.blocked
+          && owner.context.every((item, index) => item === submittedContext[index])) owner.send?.();
       }
       if (command.kind === 'autoclose') setCommandFeedback({ severity: 'success', text: `Auto-close ${command.allowed ? 'enabled' : 'disabled'}.` });
     } catch (cause) {
@@ -561,16 +566,23 @@ export function InstructionComposer({
         <ModePicker mode={mode} execution={execution} unsupportedModes={unsupportedModes} disabled={false} onChange={onModeChange} level={securityLevel} provider={provider} isolated={isolated} />
         <ModelMenu choices={modelChoices} selection={modelSelection} disabled={running} onChange={onModelSelectionChange} />
         {settingsControl}
-        <Button
-          type="button"
-          className={running ? 'cancel-button' : 'send-button'} variant="contained"
-          aria-label={running ? 'Cancel' : 'Send'}
-          title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : localCommand ? 'Run command' : sendBlocked || 'Send'}
-          disabled={running ? !cancelReady : commandPending || (!localCommand && Boolean(sendBlocked)) || !canSend}
-          onClick={running ? onCancel : () => void submit()}
-        >
-          <span aria-hidden="true">{running ? '■' : '↑'}</span>
-        </Button>
+        <div className={`composer-submit${running && onQueue ? ' with-queue' : ''}`}>
+          <Button
+            type="button"
+            className={running ? 'cancel-button' : 'send-button'} variant="contained"
+            aria-label={running ? 'Cancel' : 'Send'}
+            title={running ? cancelReady ? 'Cancel the active turn' : 'Waiting for the run to be accepted' : localCommand ? 'Run command' : sendBlocked || 'Send'}
+            disabled={running ? !cancelReady : commandPending || (!localCommand && blockedSend) || !canSend}
+            onClick={running ? onCancel : () => void submit()}
+          >
+            <span aria-hidden="true">{running ? '■' : '↑'}</span>
+          </Button>
+          {running && onQueue && <Button type="button" size="small" variant="contained"
+            disabled={queueing || commandPending || !canSend || (!localCommand && (!queueReady || blockedSend))}
+            title={sendBlocked || 'Queue for the next turn'} onClick={() => void submit()}>
+            {queueing ? 'Queuing…' : 'Queue'}
+          </Button>}
+        </div>
       </div>
     </Paper>
     <ExecutionLine execution={execution} mode={mode} continuation={continuation} instructions={instructions} level={securityLevel} provider={provider} />

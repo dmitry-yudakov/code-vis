@@ -13,7 +13,7 @@ import {
 import { PermissionBroker } from '@/server/runs/permissionBroker';
 import { resolveAgentPolicy } from '@/server/agents/agentPolicy';
 import { getConfig } from '@/server/config';
-import type { AgentMode, AgentProcessEvent } from '@/shared/types';
+import type { AgentMode, AgentProcessEvent, AgentProcessRun } from '@/shared/types';
 
 const binary = path.resolve('test/fixtures/fake-codex.mjs');
 
@@ -26,6 +26,8 @@ interface RunOptions {
   signal?: AbortSignal;
   permissions?: PermissionBroker;
   onEvent?(event: AgentProcessEvent): void;
+  onSteer?: AgentProcessRun['onSteer'];
+  prompt?: string;
   /** The installation default (`CODEAI_CODEX_MODEL`). */
   runnerModel?: string;
   model?: string;
@@ -64,18 +66,37 @@ describe.sequential('CodexProcessRunner', () => {
       runId: crypto.randomUUID(),
       checkout: { id: 'p', name: 'fixture', relativePath: '.', realPath: process.cwd() },
       session: { id: options.sessionId, action: options.action || 'start' },
-      prompt: mode === 'plan' ? 'Mode: PLAN\n\n[User message]\nMake a plan' : 'Mode: ASK\n\n[User message]\nExplain this',
+      prompt: options.prompt ?? (mode === 'plan' ? 'Mode: PLAN\n\n[User message]\nMake a plan' : 'Mode: ASK\n\n[User message]\nExplain this'),
       attachmentDirectory: directory,
       policy: { ...resolveAgentPolicy({ ...getConfig(), securityLevel: options.level ?? 'guarded' }, mode, options.execution), timeoutMs: options.timeoutMs ?? 5_000 },
       permissions: options.permissions,
       signal: options.signal || new AbortController().signal,
       emit(event) { events.push(event); options.onEvent?.(event); },
+      onSteer: options.onSteer,
       model: options.model,
       effort: options.effort,
     });
     const invocation = JSON.parse(await readFile(recordPath, 'utf8'));
     return { result, events, invocation, recordPath };
   }
+
+  it.each([['New direction', 'sent'], ['[unconfirmed-steer]', 'unknown']] as const)(
+    'scopes steering to the current app-server turn and classifies %s', async (message, outcome) => {
+      process.env.CODEAI_FAKE_CODEX_MODE = 'steer';
+      const id = crypto.randomUUID();
+      let delivery: Promise<string[]> | undefined;
+      const { result, invocation } = await run({ prompt: '[wait-for-steer]', onSteer(steer) {
+        if (steer) delivery = (async () => [await steer(crypto.randomUUID(), '[decline-steer]'), await steer(id, message)])();
+      } });
+      expect(await delivery).toEqual(['rejected', outcome]);
+      expect(result.finalText).toBe(`Steered reply: ${message}`);
+      expect(invocation.requests.filter((request: RecordedRequest) => request.method === 'turn/start')).toHaveLength(1);
+      expect(invocation.requests).toContainEqual(expect.objectContaining({ method: 'turn/steer', params: {
+        threadId: 'codex-thread-new', expectedTurnId: 'codex-turn-1', clientUserMessageId: id,
+        input: [{ type: 'text', text: message, text_elements: [] }],
+      } }));
+    },
+  );
 
   it('reports current root context, including decreases, while ignoring foreign, stale and invalid readings', async () => {
     process.env.CODEAI_FAKE_CODEX_MODE = 'context-usage';

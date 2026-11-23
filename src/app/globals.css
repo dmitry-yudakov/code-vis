@@ -309,7 +309,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 /* A file dragged over the composer can be dropped on it. */
 .instruction-composer.drop-target { outline: 2px dashed var(--plot); outline-offset: 2px; }
 .composer-actions { display: flex; align-items: center; gap: 4px; }
-.composer-actions > .send-button, .composer-actions > .cancel-button { margin-left: auto; }
+.composer-submit { display: flex; flex: none; gap: 4px; margin-left: auto; }
 .composer-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 /* Attach, mode, and execution menus. Each opens upward over the composer, anchored to its left edge. */
 /* Writing modes keep their emphasis when hovered or open. */
@@ -461,7 +461,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .chat-message.user > .message-meta { align-items: center; }
 .chat-message.user > p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
 .message-attachments { margin-top: 8px; color: var(--live-ink-muted); font-size: 10px; }
-.message-state { margin-top: 9px; display: flex; justify-content: space-between; align-items: center; color: var(--plot); font-size: 10px; }
+.message-state { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: space-between; align-items: center; color: var(--plot); font-size: 10px; }
+.message-state-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
 .assistant-blocks { overflow-wrap: anywhere; font-size: 14px; line-height: 1.7; }
 .assistant-blocks > :first-child { margin-top: 0; }
 .assistant-blocks > :last-child { margin-bottom: 0; }
@@ -839,7 +840,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .attachment-chip { flex: none; }
 .permission-card { margin: 0 18px 14px 0; }
 .composer-actions { flex-wrap: nowrap; }
-.composer-actions:has(.session-settings-options) { flex-wrap: wrap; }
+.composer-actions:has(.session-settings-options, .with-queue) { flex-wrap: wrap; }
 .model-menu { flex: 0 1 auto; }
 .model-menu > button { white-space: normal; overflow-wrap: anywhere; text-align: left; justify-content: flex-start; }
 .participant-add-form { display: grid; gap: 12px; }

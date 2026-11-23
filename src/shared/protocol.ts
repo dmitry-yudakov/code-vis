@@ -70,6 +70,7 @@ export const agentMessageRequestSchema = z.object({
   mode: agentModeSchema.optional(),
   // Scheduling only; the selected mode still owns provider permissions.
   waitForCheckout: z.boolean().optional(),
+  queueIfBusy: z.boolean().optional(),
   model: agentModelIdSchema.optional(),
   effort: agentEffortSchema.optional(),
 }).strict();
@@ -80,11 +81,16 @@ export const permissionDecisionRequestSchema = z.object({
   decision: z.enum(['allow', 'deny']),
 }).strict();
 
-export const cancelRunRequestSchema = z.object({ runId: z.string().uuid() }).strict();
+export const cancelRunRequestSchema = z.object({ runId: z.string().uuid(), queuedOnly: z.boolean().optional() }).strict();
 export const changeRunModeRequestSchema = z.object({ runId: z.string().uuid(), mode: agentModeSchema }).strict();
 export const editQueuedMessageRequestSchema = z.object({
   runId: z.string().uuid(),
   text: z.string().trim().min(1).max(MAX_MESSAGE_TEXT_CHARS),
+  expectedText: z.string().max(MAX_MESSAGE_TEXT_CHARS),
+}).strict();
+export const steerQueuedMessageRequestSchema = z.object({
+  runId: z.string().uuid(),
+  activeRunId: z.string().uuid(),
   expectedText: z.string().max(MAX_MESSAGE_TEXT_CHARS),
 }).strict();
 

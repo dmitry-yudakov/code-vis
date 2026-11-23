@@ -343,6 +343,11 @@ while (true) {
       const instructions = transcript.requests.find(request => request.method === 'thread/start')?.params.baseInstructions ?? '';
       completeTurn(instructions.includes('ARCHIVE or KEEP_OPEN') ? 'KEEP_OPEN' : 'Improve conversation titles');
     }
+    else if (mode === 'steer' && message.params.input[0].text.includes('[wait-for-steer]')) {
+      emit({ method: 'item/completed', params: { threadId, turnId, item: {
+        type: 'agentMessage', id: 'waiting', phase: 'commentary', text: 'Waiting for steering input.',
+      } } });
+    }
     else if (mode === 'context-usage') {
       const report = (tokens, extra = {}) => emit({ method: 'thread/tokenUsage/updated', params: {
         threadId, turnId, tokenUsage: { total: { inputTokens: 900_000, outputTokens: 100_000 }, last: { totalTokens: tokens }, modelContextWindow: 200_000 }, ...extra,
@@ -588,6 +593,15 @@ while (true) {
         ? 'Notes.\n<!-- cartograph:plan:start -->\n## Codex plan\n1. Verify it.\n<!-- cartograph:plan:end -->'
         : message.params.threadId === 'codex-thread-resume' ? 'Resumed Codex thread.' : 'Codex answer.');
     }
+  }
+  else if (message.method === 'turn/steer' && mode === 'steer') {
+    const { threadId: targetThread, expectedTurnId, input, clientUserMessageId } = message.params;
+    if (!turnSent || targetThread !== threadId || expectedTurnId !== turnId || !clientUserMessageId || input[0]?.text === '[decline-steer]') {
+      error(message.id, -32602, 'Steering declined');
+      continue;
+    }
+    result(message.id, { turnId: input[0]?.text === '[unconfirmed-steer]' ? 'different-turn' : turnId });
+    completeTurn(`Steered reply: ${input[0].text}`);
   }
   else if (message.method === 'turn/interrupt') {
     if (mode === 'subagent-wait-ignore' && message.params.threadId === threadId) continue;

@@ -14,7 +14,7 @@ import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import {
   sessionStoreStatus, getSessionStore, primaryRepository, serverAgent,
 } from '@/server/storage/sessionStore';
-import { runRegistry } from '@/server/runs/runRegistry';
+import { runRegistry, type RunModeOutcome } from '@/server/runs/runRegistry';
 import { sessionQueueBlockers } from '@/server/runs/sessionQueue';
 import { TurnMode } from '@/server/runs/turnMode';
 import { TurnSuspension, TurnSuspended, type ContinuationProgress } from '@/server/runs/turnSuspension';
@@ -40,7 +40,7 @@ import {
 import { decodeImageAttachments } from '@/server/storage/tempAttachments';
 import { validateManagedPath } from '@/server/repository/managedWorktrees';
 import type {
-  AgentMode, CanvasKind, DiagramArtifact, DurableSession, ImageAttachmentRecord, SketchCanvas, UserMessage, ServerCheckout,
+  AgentMode, CanvasKind, DiagramArtifact, DurableSession, ImageAttachmentRecord, SketchCanvas, UserMessage, ServerCheckout, SteerTurn,
 } from '@/shared/types';
 
 export async function submitMessage(
@@ -153,7 +153,7 @@ export async function submitMessage(
     || priorRequest.turn?.runId !== recovery.runId || priorRequest.turn.lifecycle !== 'suspended'
     || priorRequest.addressedParticipantId !== participant.id || session.archivedAt
     || recovery.hostId !== host.id || recovery.checkoutPath !== checkout.realPath || recovery.execution !== (session.execution ?? 'local')
-    || recovery.providerSessionId !== participant.session.sessionId)) {
+    || !(data.queueIfBusy && recovery.progress.attempt === 0) && recovery.providerSessionId !== participant.session.sessionId)) {
     return safeJsonResponse({ error: 'The suspended turn no longer matches its session, provider or repository.' }, { status: 409 });
   }
   if (priorRequest && !recovery) {
@@ -266,6 +266,7 @@ export async function submitMessage(
     checkoutPath: checkout.realPath,
     access: changesCheckout(mode) ? 'write' : 'read',
     waitForCheckout: data.waitForCheckout,
+    queueIfBusy: data.queueIfBusy,
     blockedBySessions,
     execution,
     mode,
@@ -407,7 +408,7 @@ export async function submitMessage(
     };
     suspensionRecord = record;
     await journal.save(record);
-    if (!runRegistry.hasLiveSession(session.id)) { await journal.remove(runId); return; }
+    if (!runRegistry.hasLiveRun(runId)) { await journal.remove(runId); return; }
     if (!executing) {
       try {
         await store.suspendUserMessage(session.id, data.messageId);
@@ -495,6 +496,7 @@ export async function submitMessage(
         signal: abortController.signal,
         emit,
         onPermissionBroker: (broker) => runRegistry.attachPermissions(runId, broker),
+        onSteer: (steer) => runRegistry.attachSteering(runId, steer),
         turnMode,
         suspension,
         continuationProgress: recovery?.progress,
@@ -549,8 +551,42 @@ export async function submitMessage(
     }
   };
 
+  async function steerQueued(activeRunId: string, expectedText: string, steer: SteerTurn): Promise<RunModeOutcome> {
+    const current = await store.getSession(session.id);
+    const queued = current.messages.find(message => message.id === data.messageId);
+    if (queued?.role !== 'user' || queued.turn?.lifecycle !== 'queued' || queued.text !== expectedText) {
+      return { ok: false, status: 409, error: 'This queued message changed. Review its current text before steering.' };
+    }
+    // Claim the request before contacting Codex so uncertain delivery cannot spawn a separate turn.
+    await journal.save({ ...pendingRequest, state: 'resuming' });
+    const outcome = await steer(queued.id, queued.text).catch(() => 'unknown' as const);
+    if (outcome === 'rejected') {
+      try {
+        await journal.save(pendingRequest);
+        return { ok: false, status: 409, error: 'Codex declined the steering request. The message stays queued.' };
+      } catch { /* Keep the claim and stop promotion if the queue entry cannot be restored. */ }
+    }
+    try {
+      const save = async () => {
+        if (outcome === 'sent') await store.markMessageSteered(session.id, queued.id, activeRunId);
+        else await store.failUserMessage(session.id, queued.id, 'failed', outcome === 'unknown' ? 'possibly-sent' : 'not-sent');
+      };
+      await save().catch(() => save());
+      await journal.remove(runId).catch(() => undefined);
+    } catch {
+      return { ok: false, status: 503, error: 'Could not save the steering outcome. Check the conversation before sending again.' };
+    } finally {
+      runRegistry.finish(runId, false);
+    }
+    return outcome === 'sent' ? { ok: true } : { ok: false, status: 409, error: outcome === 'unknown'
+      ? 'Steering delivery is uncertain. Check the conversation before sending again.' : 'Could not restore the queued message after Codex declined it.' };
+  }
+
+  const canSteer = participant.provider === 'codex' && data.queueIfBusy && !data.waitForCheckout
+    && !activeFile && !messageAttachments.length && !reportIds.length && !imageRecords.length && !fileRecords.length;
   const activated = runRegistry.activate(runId, {
     execute,
+    steerQueued: canSteer ? steerQueued : undefined,
     async editQueued(text, expectedText) {
       await store.editQueuedMessage(session.id, runId, data.messageId, text, expectedText);
     },
@@ -577,5 +613,6 @@ export async function submitMessage(
     return safeJsonResponse({ error: 'The accepted turn could not enter the machine scheduler.' }, { status: 500 });
   }
 
-  return safeJsonResponse({ runId }, { status: 202, headers: { 'X-CodeAI-Run-Id': runId } });
+  return safeJsonResponse({ runId }, { status: 202, headers: { 'X-CodeAI-Run-Id': runId,
+    ...(data.queueIfBusy ? { 'X-CodeAI-Queue-Only': 'true' } : {}) } });
 }
