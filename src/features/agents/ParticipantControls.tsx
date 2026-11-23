@@ -14,6 +14,7 @@ import type { DevicePreferences } from '@/features/shell/devicePreferences';
 import { AGENT_ROLES, AGENT_ROLE_LABELS } from '@/shared/participants';
 import { ContextUsage } from './ContextUsage';
 import { ProviderChips } from './ProviderChips';
+import { ProviderLogo } from './ProviderLogo';
 
 const HANDOFF_PROMPTS: Record<AgentRole, string> = {
   orchestrator: 'Synthesize the conversation above into a concrete next-step plan. Call out unresolved decisions, dependencies, and risks.',
@@ -48,7 +49,12 @@ export function ParticipantControls({
   const safeProvider = choice.provider && providers.includes(choice.provider) ? choice.provider : providers[0];
 
   return <div className="participant-controls">
-    <DesktopPopover className="agent-menu" label="Session agents" summary={`@${selected?.displayName || 'Agent'} ▾`} disabled={disabled || busy}
+    <DesktopPopover className="agent-menu" label="Session agents" summary={<>
+      {selected && <ProviderLogo provider={selected.provider} />}
+      <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        @{selected?.displayName || 'Agent'} ▾
+      </Box>
+    </>} disabled={disabled || busy}
       onOpenChange={open => { if (!open) setAdding(false); }}>
       {(close) => <div className="participant-menu">
         <Box component="section" aria-label="Next message to">
@@ -58,6 +64,7 @@ export function ParticipantControls({
               variant={agent.id === selected?.id ? 'contained' : 'text'}
               sx={{ justifyContent: 'flex-start', textAlign: 'left', gap: 1 }}
               onClick={() => { onSelect(agent.id); close(); }}>
+              <ProviderLogo provider={agent.provider} onAccent={agent.id === selected?.id} />
               <Box component="span" sx={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
                 @{agent.displayName}<Typography component="span" variant="caption" sx={{ display: 'block', opacity: 0.8 }}>{AGENT_ROLE_LABELS[agent.role]}</Typography>
               </Box>

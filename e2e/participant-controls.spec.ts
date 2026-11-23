@@ -36,6 +36,8 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     const menu = panel(page);
     const recipients = menu.getByRole('region', { name: 'Next message to', exact: true });
     const handoffs = menu.getByRole('region', { name: 'Draft a message', exact: true });
+    await expect(agents.locator('[data-provider-logo="claude"]')).toBeVisible();
+    await expect(recipients.locator('[data-provider-logo="claude"]')).toHaveCount(2);
     await expect(recipients.getByRole('button', { pressed: true })).toContainText('Main');
     await expect(handoffs.getByRole('button')).toHaveText('Review this → @Claude Reviewer');
     const addParticipant = addParticipantButton(page);
@@ -49,6 +51,9 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(addParticipant).toHaveAttribute('aria-expanded', 'true');
     await expect(providers.getByRole('button', { name: 'Claude', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(providers.getByRole('button', { name: 'Codex', exact: true })).toBeDisabled();
+    for (const provider of ['claude', 'codex']) {
+      await expect(providers.locator(`[data-provider-logo="${provider}"][aria-hidden="true"]`)).toBeVisible();
+    }
     await page.screenshot({ path: testInfo.outputPath('participants.png'), animations: 'disabled' });
     const box = (await menu.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
@@ -107,6 +112,7 @@ test('a chosen role survives failed addition, reload, and both new-session forms
   await page.reload();
   await page.locator('.new-session-menu > button').click();
   const form = page.getByRole('form', { name: 'Create project session', exact: true });
+  await expect(form.locator('[data-provider-logo]')).toHaveCount(2);
   await expect(form.getByLabel('Role', { exact: true })).toHaveValue('tester');
   await form.getByLabel('Role', { exact: true }).selectOption('custom');
   const created = page.waitForResponse(response => response.url().endsWith('/api/sessions') && response.request().method() === 'POST');
@@ -116,6 +122,7 @@ test('a chosen role survives failed addition, reload, and both new-session forms
   await page.goto('/arena');
   await page.getByRole('button', { name: `New session in ${project.name}`, exact: true }).click();
   const setup = page.getByRole('dialog', { name: 'New session', exact: true });
+  await expect(setup.locator('[data-provider-logo]')).toHaveCount(2);
   await expect(setup.getByLabel('Role', { exact: true })).toHaveValue('custom');
   await setup.getByLabel('Role', { exact: true }).selectOption('coder');
   await setup.getByRole('button', { name: /Model and effort/ }).click();
@@ -136,7 +143,8 @@ test('a chosen role survives failed addition, reload, and both new-session forms
   await expect(panel(page).getByLabel('Role', { exact: true })).toHaveValue('coder');
 });
 
-test('available providers can be switched with the keyboard and keep the chosen role', async ({ page, request }) => {
+test('available providers can be switched with the keyboard and keep the chosen role', async ({ page, request }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('code-ai:theme', 'dark'));
   const { session } = await fixture(request);
   await page.route('**/api/health', async route => {
     const response = await route.fetch();
@@ -158,6 +166,7 @@ test('available providers can be switched with the keyboard and keep the chosen 
   await codex.focus();
   await page.keyboard.press('Enter');
   await expect(codex).toHaveAttribute('aria-pressed', 'true');
+  await panel(page).screenshot({ path: testInfo.outputPath('codex-selected.png'), animations: 'disabled' });
   await addParticipant.press('Space');
   await expect(addParticipant).toHaveAttribute('aria-expanded', 'false');
   await expect(role).toBeHidden();

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -9,10 +9,13 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import type { AgentProvider, ArenaMachineSnapshot, ModelSelection, ProviderHealth } from '@/shared/types';
+import { PROVIDER_LABELS } from '@/shared/participants';
+import { ProviderLogo } from '@/features/agents/ProviderLogo';
 import { workspaceHref } from '@/features/shell/workspaceLocation';
 import { useArenaNow } from '@/features/arena/useArenaNow';
 import { observerContext } from './observerModel';
@@ -36,6 +39,7 @@ export function ObserverDialog(props: {
   const latest = useRef({ observer, props }); latest.current = { observer, props };
   const end = useRef<HTMLDivElement>(null);
   const now = useArenaNow();
+  const providerId = useId();
   const context = useMemo(() => observerContext(props.machines, 0, '', now), [props.machines, now]);
   const ready = Boolean(props.providers?.[props.provider]?.available);
   const stopVoice = () => {
@@ -66,9 +70,14 @@ export function ObserverDialog(props: {
     <DialogTitle id="observer-title">Observer</DialogTitle>
     <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 }}>
       <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-        <TextField select label="Provider" size="small" value={props.provider} disabled={observer.busy || voiceActive}
-          slotProps={{ select: { native: true } }} onChange={event => props.onProvider(event.target.value as AgentProvider)}>
-          <option value="claude">Claude</option><option value="codex">Codex</option>
+        <TextField id={providerId} select label="Provider" size="small" value={props.provider} disabled={observer.busy || voiceActive}
+          onChange={event => props.onProvider(event.target.value as AgentProvider)}>
+          {(['claude', 'codex'] as const).map(provider => <MenuItem key={provider} value={provider}>
+            <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ProviderLogo provider={provider} />
+              {PROVIDER_LABELS[provider]}
+            </Box>
+          </MenuItem>)}
         </TextField>
         <Typography variant="caption">{props.selection.model ?? 'Default model'}{props.selection.effort ? ` · ${props.selection.effort}` : ''}</Typography>
         <Button onClick={voiceActive ? stopVoice : startVoice} disabled={!voiceActive && (!ready || observer.busy)}>{voiceActive ? 'Stop voice' : 'Voice'}</Button>
@@ -76,7 +85,7 @@ export function ObserverDialog(props: {
       <Typography variant="caption" color="text.secondary">
         {context.total} active {context.total === 1 ? 'session' : 'sessions'}{Object.entries(context.counts).map(([state, count]) => ` · ${count} ${state}`).join('')}
       </Typography>
-      <Typography variant="caption" color="text.secondary">Session excerpts are shared with {props.provider === 'claude' ? 'Claude' : 'Codex'} on the home machine, including attached machines.</Typography>
+      <Typography variant="caption" color="text.secondary">Session excerpts are shared with {PROVIDER_LABELS[props.provider]} on the home machine, including attached machines.</Typography>
       {voiceStatus && <Typography role="status" variant="body2">{voiceStatus}{voiceName ? ` · ${voiceName}` : ''}</Typography>}
       <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 80 }} aria-label="Observer conversation" tabIndex={0}>
         {!observer.messages.length && <Typography color="text.secondary" sx={{ mb: 2 }}>Your assistant for managing all sessions. Ask for a briefing, send a message, review an approval, or make a correction.</Typography>}

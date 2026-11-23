@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import { PROVIDER_LABELS } from '@/shared/participants';
 import type { AgentProvider } from '@/shared/types';
+import { ProviderLogo } from './ProviderLogo';
 
 /** Both choices stay visible, including a provider that needs setup on this machine. */
 export function ProviderChips({ value, available, disabled, onChange }: {
@@ -14,8 +15,10 @@ export function ProviderChips({ value, available, disabled, onChange }: {
 }) {
   return <Box role="group" aria-label="Provider" sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
     {(['claude', 'codex'] as const).map(provider => <Chip key={provider} component="button" type="button"
-      label={PROVIDER_LABELS[provider]} aria-pressed={value === provider}
-      icon={value === provider ? <span aria-hidden="true">✓</span> : undefined}
+      label={<Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        {PROVIDER_LABELS[provider]}{value === provider && <span aria-hidden="true">✓</span>}
+      </Box>} aria-pressed={value === provider}
+      icon={<ProviderLogo provider={provider} onAccent={value === provider} />}
       color={value === provider ? 'primary' : 'default'} variant={value === provider ? 'filled' : 'outlined'}
       disabled={disabled || !available.includes(provider)}
       title={!available.includes(provider) ? `${PROVIDER_LABELS[provider]} needs setup on this machine` : undefined}

@@ -5,6 +5,7 @@ import type { ThemeName } from '@/shared/design/tokens';
 import { offeredEfforts } from '@/shared/modelChoices';
 import { unsupportedModes } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
+import { PROVIDER_LABELS } from '@/shared/participants';
 import { launchInstructions } from '@/features/shell/devicePreferences';
 import type { SessionLauncher } from '@/features/session-launch/useSessionLauncher';
 import { reportTitle, reportDescription, reportCaptureLabel } from '@/features/reports/reportModel';
@@ -52,7 +53,7 @@ export function SessionSetup({ launcher, theme, onCapture, onController }: {
       `Checkout: ${settings?.checkoutMode === 'worktree' ? 'Create a worktree' : 'Current checkout'}`,
       settings?.waitForCheckout && (launcher.error || launcher.frozen) ? 'Start: After earlier sessions are archived.' : '',
       settings?.checkoutMode === 'worktree' ? WORKTREE_BASELINE : launcher.checkoutChoice.reason ?? ''].join('\n\n')
-    : page === 'agents' ? [`Provider: ${settings?.provider}`, `Mode: ${settings?.mode}`, `Global instructions: ${settings ? launchInstructions(settings.instructions, settings.execution, settings.provider) ?? 'Default' : 'Default'}`,
+    : page === 'agents' ? [`Provider: ${settings ? PROVIDER_LABELS[settings.provider] : 'None'}`, `Mode: ${settings?.mode}`, `Global instructions: ${settings ? launchInstructions(settings.instructions, settings.execution, settings.provider) ?? 'Default' : 'Default'}`,
       `Model: ${settings?.modelSelection.model ?? 'Default'}`, `Effort: ${settings?.modelSelection.effort ?? 'Default'}`,
       settings?.execution === 'docker' ? 'Docker Agent edits directly without individual approvals.' : ''].join('\n\n')
     : [launcher.autocloseOnly ? 'Apply auto-close for this setup.'
@@ -73,7 +74,10 @@ export function SessionSetup({ launcher, theme, onCapture, onController }: {
       ? ['machine', 'project', 'repository', 'execution', 'checkout'] as const : page === 'agents'
         ? ['provider', 'mode', 'instructions', 'model', 'effort'] as const : []),
     'clear', ...(launcher.createdSession ? ['open' as const] : []), ...(page !== 'message' || launcher.error ? ['submit' as const] : [])];
-  const resources = useTextureResource((ledger) => Object.fromEntries(buttons.map((action) => [action, createWorkspaceButtonResource(SETUP_ACTIONS[action], theme, ledger)])), [buttons.join(','), theme]);
+  const buttonLabel = (action: SetupActionName) => action === 'provider' && settings ? PROVIDER_LABELS[settings.provider] : SETUP_ACTIONS[action];
+  const resources = useTextureResource((ledger) => Object.fromEntries(buttons.map((action) => [
+    action, createWorkspaceButtonResource(buttonLabel(action), theme, ledger, action === 'provider' ? settings?.provider : undefined),
+  ])), [buttons.join(','), settings?.provider, theme]);
   const disabled = (action: SetupActionName) => {
     if (action === 'close') return false;
     if (action === 'files') return true;
@@ -143,7 +147,7 @@ export function SessionSetup({ launcher, theme, onCapture, onController }: {
       const position: [number, number, number] = top ? [topRow.get(action) ?? 0, .85, .002]
         : middle ? [middleRows[row]?.get(action) ?? 0, -.40 - row * .17, .002]
           : [footerRow.get(action) ?? 0, -.89, .002];
-      return <WorldButton key={action} action={`setup:${action}`} label={SETUP_ACTIONS[action]} resource={resources?.[action]} iconTheme={theme}
+      return <WorldButton key={action} action={`setup:${action}`} label={buttonLabel(action)} resource={resources?.[action]} iconTheme={theme}
         disabled={disabled(action)} position={position} selected={page === action} onAction={() => perform(action)} />;
     })}
     {page === 'message' && <ConversationTools setupInput controls={controls} theme={theme} enabled={!launcher.busy && !launcher.frozen} tab="compose" atBottom

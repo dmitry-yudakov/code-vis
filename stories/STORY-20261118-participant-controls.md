@@ -60,3 +60,32 @@ the wider run; both same/other-project cases pass in isolation on the changed an
 The wider Docker continuation run was interrupted and is not counted as completed verification.
 
 The running application has not been rebuilt or restarted.
+
+## Follow-up — Provider logos
+
+**Status:** Shipped
+
+Make the similarly named providers easy to distinguish by placing their marks before their labels.
+
+- [x] Session setup, Add participant, and Observer show both provider marks. Session agents also
+  identifies the current recipient and each recipient choice by provider.
+- [x] VR creation and Add participant show the mark for the provider being selected.
+- [x] Names remain readable and accessible. Keyboard selection, availability, and remembered choices
+  continue to work.
+
+### Where the code is
+
+- `src/features/agents/ProviderChips.tsx:10` owns the shared provider chips.
+- `src/features/agents/ParticipantControls.tsx:27` owns conversation recipient selection.
+- `src/features/observer/ObserverDialog.tsx:27` owns the Observer provider dropdown.
+- `src/features/shell/immersive/workspaceResources.ts:45` draws VR control labels.
+
+### How to verify
+
+Run TypeScript and a production build, then exercise the participant, Observer, session setup,
+and VR picker browser cases. Check the marks at desktop and phone widths in both themes.
+
+TypeScript, the isolated production build, 56 focused unit tests, and 34 Chrome cases passed.
+Light and dark desktop and phone screenshots were inspected. Independent review led to a
+neutral background behind logos on filled selections. The VR launcher offline-refresh assertion
+also failed on the pre-change build. Physical headset verification remains pending.

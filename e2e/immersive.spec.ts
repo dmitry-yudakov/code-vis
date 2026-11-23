@@ -2816,6 +2816,7 @@ test('VR setup restores Auto and offers it alongside Ask, Plan, and Agent', asyn
   const fixture = await workspaceFixture(page, true);
   const home = fixture.snapshot(LOCAL, 'Home', fixture.local);
   home.providers.claude.supportedModes = ['ask', 'plan', 'agent', 'auto'];
+  home.providers.codex = { ...home.providers.claude };
   await page.route('**/api/health', (route) => route.fulfill({ json: {
     ok: true, hostLabel: 'Home', repositoriesRootReady: true, dataDirectoryReady: true,
     securityLevel: 'guarded', providers: home.providers,
@@ -2826,6 +2827,18 @@ test('VR setup restores Auto and offers it alongside Ask, Plan, and Agent', asyn
   await controls(page).locator('[data-immersive-action="arena:new"]').click();
   await setupAction(page, 'settings'); await setupAction(page, 'agents');
   await expect.poll(() => setupDetails(page)).toContain('Mode: auto');
+  const paintedLogo = (name: string) => page.evaluate(name => {
+    const mesh = window.xrScene?.scene.getObjectByName(name) as Mesh | undefined;
+    const canvas = (mesh?.material as import('three').MeshBasicMaterial | undefined)?.map?.image as HTMLCanvasElement | undefined;
+    const pixel = canvas?.getContext('2d')?.getImageData(39, 40, 1, 1).data;
+    if (!pixel?.[3]) return undefined;
+    return pixel[0] > pixel[2] ? 'orange' : pixel[2] > pixel[0] ? 'blue' : undefined;
+  }, name);
+  await expect.poll(() => paintedLogo('Claude')).toBe('orange');
+  await setupAction(page, 'provider');
+  await expect.poll(() => paintedLogo('Codex')).toBe('blue');
+  await setupAction(page, 'provider');
+  await expect.poll(() => paintedLogo('Claude')).toBe('orange');
   for (const mode of ['ask', 'plan', 'agent', 'auto']) {
     await setupAction(page, 'mode');
     await expect.poll(() => setupDetails(page)).toContain(`Mode: ${mode}`);

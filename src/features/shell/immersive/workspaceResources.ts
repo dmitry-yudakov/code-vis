@@ -1,5 +1,7 @@
 import type { ImmersiveTexturePanel } from '@/features/diagram/spatial/immersiveResources';
 import type { ThemeName } from '@/shared/design/tokens';
+import type { AgentProvider } from '@/shared/types';
+import { CLAUDE_LOGO_COLOR, CODEX_LOGO_STOPS, PROVIDER_LOGO_PATHS } from '@/features/agents/providerLogos';
 import { texturePanel } from '@/features/diagram/spatial/immersiveResources';
 import type { SpatialResourceLedger } from '@/features/diagram/spatial/resourceLedger';
 import {
@@ -40,7 +42,7 @@ export function createWorkspaceTextResource(title: string, detail: string, theme
   };
 }
 
-function createWorkspaceLabel(label: string, theme: ThemeName, ledger: SpatialResourceLedger, type: 'button' | 'label') {
+function createWorkspaceLabel(label: string, theme: ThemeName, ledger: SpatialResourceLedger, type: 'button' | 'label', provider?: AgentProvider) {
   const canvas = document.createElement('canvas');
   canvas.width = 320;
   canvas.height = 80;
@@ -48,21 +50,39 @@ function createWorkspaceLabel(label: string, theme: ThemeName, ledger: SpatialRe
   if (!context) throw new Error('Panel controls unavailable.');
   const pixelsPerMeter = canvas.height / IMMERSIVE_CONTROL_HEIGHT;
   context.font = immersiveFont(type, pixelsPerMeter);
-  const measured = context.measureText(label).width + dpToWorld(32) * pixelsPerMeter;
+  const logoSize = dpToWorld(16) * pixelsPerMeter;
+  const logoSpace = provider ? logoSize + dpToWorld(6) * pixelsPerMeter : 0;
+  const labelWidth = context.measureText(label).width;
+  const measured = labelWidth + logoSpace + dpToWorld(32) * pixelsPerMeter;
   canvas.width = Math.max(80, Math.min(320, Math.ceil(measured)));
-  context.fillStyle = IMMERSIVE_GLYPH_MASK;
+  context.fillStyle = provider ? immersiveTheme[theme].text : IMMERSIVE_GLYPH_MASK;
   context.font = immersiveFont(type, pixelsPerMeter);
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText(label, canvas.width / 2, canvas.height / 2, canvas.width - 16);
+  const maxTextWidth = canvas.width - 16 - logoSpace;
+  context.fillText(label, (canvas.width + logoSpace) / 2, canvas.height / 2, maxTextWidth);
+  if (provider) {
+    context.translate((canvas.width - Math.min(labelWidth, maxTextWidth) - logoSpace) / 2, (canvas.height - logoSize) / 2);
+    context.scale(logoSize / 24, logoSize / 24);
+    if (provider === 'codex') {
+      const gradient = context.createLinearGradient(0, 0, 0, 24);
+      for (const [offset, color] of CODEX_LOGO_STOPS) gradient.addColorStop(offset, color);
+      context.fillStyle = gradient;
+    } else {
+      context.fillStyle = CLAUDE_LOGO_COLOR;
+    }
+    context.fill(new Path2D(PROVIDER_LOGO_PATHS[provider]), 'evenodd');
+  }
   const resource = texturePanel(canvas, [canvas.width / pixelsPerMeter, IMMERSIVE_CONTROL_HEIGHT], ledger);
-  resource.presentation = 'text-mask';
-  resource.material.color.set(immersiveTheme[theme].text);
+  if (!provider) {
+    resource.presentation = 'text-mask';
+    resource.material.color.set(immersiveTheme[theme].text);
+  }
   return resource;
 }
 
-export function createWorkspaceButtonResource(label: string, theme: ThemeName, ledger: SpatialResourceLedger) {
-  return createWorkspaceLabel(label, theme, ledger, 'button');
+export function createWorkspaceButtonResource(label: string, theme: ThemeName, ledger: SpatialResourceLedger, provider?: AgentProvider) {
+  return createWorkspaceLabel(label, theme, ledger, 'button', provider);
 }
 
 export function createWorkspaceLabelResource(label: string, theme: ThemeName, ledger: SpatialResourceLedger) {

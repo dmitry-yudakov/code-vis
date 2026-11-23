@@ -125,6 +125,25 @@ test('observer errors preserve text and reload keeps a frozen exact-delivery pre
   expect(messageId).toBeTruthy();
 });
 
+test('Observer shows both provider logos and switches provider by keyboard', async ({ page }, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('code-ai:device:v1:preferences', JSON.stringify({ version: 1, provider: 'claude' })));
+  await page.goto('/arena');
+  const dialog = await open(page);
+  const provider = dialog.getByRole('combobox', { name: /^Provider/ });
+  await expect(provider.locator('[data-provider-logo="claude"]')).toBeVisible();
+  await provider.press('ArrowDown');
+  const list = page.getByRole('listbox');
+  await expect(list.getByRole('option', { name: 'Claude', exact: true }).locator('[data-provider-logo="claude"]')).toBeVisible();
+  const codex = list.getByRole('option', { name: 'Codex', exact: true });
+  await expect(codex.locator('[data-provider-logo="codex"]')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('observer-provider-menu.png'), animations: 'disabled' });
+  await page.keyboard.press('ArrowDown');
+  await expect(codex).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(provider.locator('[data-provider-logo="codex"]')).toBeVisible();
+  await expect(dialog).toContainText('Session excerpts are shared with Codex');
+});
+
 test('Observer revises an unsent message conversationally and preserves direct edits on failure', async ({ page, request }) => {
   const session = await fixture(request);
   await page.goto('/arena'); const dialog = await open(page);

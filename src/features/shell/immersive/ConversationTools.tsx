@@ -134,13 +134,13 @@ export function ConversationTools({ controls, theme, enabled, visible = true, co
   const visibleActions = [...actions, ...(!expanded && !atBottom ? ['latest' as const] : [])];
   const controllerAvailable = visible || controllerOnly;
   const actionLabel = (action: ConversationActionName) => action === 'provider'
-    ? `Provider: ${provider ? PROVIDER_LABELS[provider] : 'None'}`
+    ? (provider ? PROVIDER_LABELS[provider] : 'No provider')
     : action === 'role' ? `Role: ${AGENT_ROLE_LABELS[role]}` : CONVERSATION_ACTIONS[action];
   const labels = useTextureResource((ledger) => !visible ? undefined : Object.fromEntries(visibleActions.map((action) => {
     const iconAction = `conversation:${action}`;
     return [action, { icon: isWorkspaceIconAction(iconAction)
       ? createWorkspaceIconResource(iconAction, theme, ledger)
-      : createWorkspaceButtonResource(actionLabel(action), theme, ledger) }];
+      : createWorkspaceButtonResource(actionLabel(action), theme, ledger, action === 'provider' ? provider : undefined) }];
   })), [visible, visibleActions.join(','), provider, role, theme]);
   const disabled = (action: ConversationActionName) => {
     if (!enabled || !controllerAvailable) return true;

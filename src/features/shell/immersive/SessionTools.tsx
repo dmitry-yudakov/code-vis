@@ -170,8 +170,10 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
       : tab === 'reports' ? `Report ${reportIndex + 1} of ${reports.length}` : tab === 'codeai' ? 'CodeAI' : 'Session tools'} · ${safePage + 1}/${pageCount}`,
     lines.slice(safePage * 10, safePage * 10 + 10), theme, ledger,
   ), [lines, safePage, pageCount, tab, reportIndex, reports.length, theme]);
-  const buttons = useTextureResource((ledger) => Object.fromEntries(Object.entries(SESSION_ACTIONS).map(([action, label]) =>
+  const buttons = useTextureResource((ledger) => Object.fromEntries(Object.entries(SESSION_ACTIONS).filter(([action]) => action !== 'provider').map(([action, label]) =>
     [action, createWorkspaceButtonResource(label, theme, ledger)])), [theme]);
+  const providerButton = useTextureResource((ledger) => tab === 'launcher'
+    ? createWorkspaceButtonResource(PROVIDER_LABELS[provider], theme, ledger, provider) : undefined, [tab, provider, theme]);
   const perform = (action: SessionActionName) => {
     if (!enabled || busyRef.current) return;
     if (action === 'launcher' && controls.onNewSetup) { controls.onNewSetup(); return; }
@@ -250,7 +252,8 @@ export function SessionTools({ controls, theme, enabled, request, onController, 
   useEffect(() => { onController(perform); return () => onController(undefined); });
   const button = (action: SessionActionName, x: number, y: number, disabled = false) => <WorldButton
     key={`${action}:${action === 'cancel' ? controls.cancelKey : tab === 'permissions' && selected ? permissionKey(selected) : ''}`}
-    action={`session:${action}`} label={SESSION_ACTIONS[action]} resource={buttons?.[action]}
+    action={`session:${action}`} label={action === 'provider' ? PROVIDER_LABELS[provider] : SESSION_ACTIONS[action]}
+    resource={action === 'provider' ? providerButton : buttons?.[action]}
     iconTheme={theme} position={[x, y, 0]} disabled={!enabled || busy || disabled}
     variant={action === 'allow' || action === 'create' ? 'primary'
       : action === 'revoke' || action === 'confirm-revoke' || action === 'cancel' || action === 'confirm-build-restart'
