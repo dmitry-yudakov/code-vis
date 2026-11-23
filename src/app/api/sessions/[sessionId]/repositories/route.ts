@@ -3,6 +3,7 @@ import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getSessionStore, publicSession, sessionStoreStatus } from '@/server/storage/sessionStore';
 import { publicError, safeJsonResponse, setSessionRepositoriesRequestSchema } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,7 @@ export async function PUT(request: Request, context: SessionRouteContext): Promi
       sessionId,
       parsed.data.repositories,
       parsed.data.expectedRevision,
+      await webActor(request),
     );
     return safeJsonResponse({ session: publicSession(session) });
   } catch (error) {

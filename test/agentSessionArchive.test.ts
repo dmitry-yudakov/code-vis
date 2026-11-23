@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkSessionCompletion, completionContext } from '@/server/conversation/agentSessionArchive';
+import { readActivity } from '@/server/storage/activityLog';
 import { getConfig } from '@/server/config';
 import { publicSession, arenaSessionSummary, completedArchiveReply, SessionStore } from '@/server/storage/sessionStore';
 import { RunRegistry } from '@/server/runs/runRegistry';
@@ -134,6 +135,9 @@ describe('separate session completion inference', () => {
     const saved = await store.getArchivedSession(session.id);
     expect(saved.messages).toEqual(session.messages);
     expect(saved.agentArchiveCheck).toMatchObject({ messageId: reply.id, status: 'archived' });
+    expect((await readActivity(input.config.dataDir, 'automatic'))?.entries).toEqual([
+      expect.objectContaining({ action: 'session.archive.completed', sessionId: session.id, requestId: saved.agentArchiveCheck?.id }),
+    ]);
     expect(notify).toHaveBeenCalledExactlyOnceWith(session.id);
     const request = mocks.run.mock.lastCall![0] as AgentProcessRun;
     expect(request).toMatchObject({ backgroundTask: 'archive-check', session: { action: 'start' }, model: 'chosen-model', effort: 'low',

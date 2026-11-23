@@ -5,6 +5,7 @@ import {
   deleteProjectRequestSchema, publicError, safeJsonResponse, updateProjectRequestSchema,
 } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 import { readProjectLogo } from '@/server/repository/projectLogo';
 import { RepositoryFileError } from '@/server/repository/repositoryFiles';
 
@@ -47,7 +48,7 @@ export async function PATCH(request: Request, context: ProjectRouteContext): Pro
       if (current.revision !== parsed.data.expectedRevision) throw new SessionStoreError('conflict', 'Project changed on another client. Refetch and retry.');
       await readProjectLogo({ ...current, ...parsed.data, logo: parsed.data.logo }, (await store.host()).id, config);
     }
-    const project = await store.updateProject(projectId, parsed.data);
+    const project = await store.updateProject(projectId, parsed.data, await webActor(request));
     return safeJsonResponse({ project });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: error instanceof RepositoryFileError ? error.status : sessionStoreStatus(error) });
@@ -63,7 +64,7 @@ export async function DELETE(request: Request, context: ProjectRouteContext): Pr
     const { projectId } = await context.params;
     const config = getConfig();
     const result = await getSessionStore(config.dataDir, config.hostLabel)
-      .deleteProject(projectId, parsed.data.expectedRevision);
+      .deleteProject(projectId, parsed.data.expectedRevision, await webActor(request));
     return safeJsonResponse(result);
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });

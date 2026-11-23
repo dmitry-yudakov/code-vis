@@ -28,7 +28,7 @@ export default defineConfig({
     },
   }],
   webServer: {
-    command: `npx next start -p ${e2ePort}`,
+    command: `npx next start --hostname 127.0.0.1 -p ${e2ePort}`,
     url: `${e2eBaseUrl}/api/projects`,
     reuseExistingServer: false,
     timeout: 30_000,
@@ -36,6 +36,7 @@ export default defineConfig({
       ...process.env,
       // Local deployment settings must not turn the offline fixtures into a paired/Native server.
       CODEAI_REMOTE_ACCESS: 'local',
+      CODEAI_MCP_ORIGIN: e2eBaseUrl,
       CODEAI_SECURITY_LEVEL: 'guarded',
       CODEAI_REPOSITORIES_ROOT: path.resolve('test/fixtures/projects'),
       CODEAI_REPOSITORIES_DEPTH: '2',

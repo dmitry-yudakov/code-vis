@@ -5,6 +5,7 @@ vi.mock('@/server/devices/deviceAuthorization', async original => ({ ...await or
 vi.mock('@/server/repository/checkoutRegistry', () => ({ getCheckoutRegistry: () => ({ resolve: state.resolve }) }));
 vi.mock('@/server/repository/gitChanges', () => ({ changeGitIndex: state.stage, commitGitIndex: state.commit }));
 vi.mock('@/server/repository/gitHistory', () => ({ readGitCommit: state.details, readGitCommitPatch: state.patch }));
+vi.mock('@/server/storage/activityLog', () => ({ recordActivity: vi.fn() }));
 import { POST as INDEX } from '@/app/api/repository/index/route';
 import { GET, POST as COMMIT } from '@/app/api/repository/commit/route';
 import { machineOperationAllowed } from '@/server/machines/machineRoutePolicy';

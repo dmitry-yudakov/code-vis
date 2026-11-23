@@ -2,6 +2,7 @@ import type { AppConfig } from '@/server/config';
 import { recoverDockerExecution } from '@/server/execution/dockerRecovery';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { getSessionStore, sessionStoreErrorCode, type SessionStore } from './sessionStore';
+import { automaticActivityActor } from '@/shared/activityLog';
 
 export const SESSION_INACTIVITY_MS = 48 * 60 * 60 * 1_000;
 const scope = globalThis as typeof globalThis & { __codeAiAutoArchiveSweeps?: WeakMap<SessionStore, Promise<void>> };
@@ -33,7 +34,7 @@ async function sweep(store: SessionStore, config: AppConfig, now: number): Promi
     try {
       const current = await store.getSession(session.id);
       if (current.messages.some(message => message.role === 'user' && message.turn?.lifecycle === 'suspended')) continue;
-      await store.archiveSession(session.id, session.revision);
+      await store.archiveSession(session.id, session.revision, undefined, undefined, automaticActivityActor);
       runRegistry.sessionArchived(session.id);
     } catch (error) {
       const code = sessionStoreErrorCode(error);

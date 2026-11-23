@@ -8,6 +8,7 @@ import {
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { AGENT_ROLE_DEFAULT_MODES } from '@/shared/participants';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,6 +45,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       parsed.data.provider,
       parsed.data.role,
       parsed.data.requestId,
+      undefined,
+      await webActor(request),
     );
     return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
@@ -63,6 +66,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       sessionId,
       parsed.data.primaryAgentId,
       parsed.data.expectedRevision,
+      await webActor(request),
     );
     return safeJsonResponse({ session: publicSession(session) });
   } catch (error) {

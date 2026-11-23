@@ -1,6 +1,7 @@
 import { cancelRunRequestSchema, safeJsonResponse } from '@/shared/protocol';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActivityRecorder } from '@/server/devices/activityActor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,8 @@ export async function POST(request: Request): Promise<Response> {
   }
   const parsed = cancelRunRequestSchema.safeParse(raw);
   if (!parsed.success) return safeJsonResponse({ error: 'Cancel request is invalid.' }, { status: 400 });
+  const record = await webActivityRecorder(request);
+  const run = runRegistry.currentRuns.find(item => item.runId === parsed.data.runId);
   const outcome = await runRegistry.cancel(parsed.data.runId);
   if (outcome === 'unknown-run') {
     return safeJsonResponse({ error: 'That agent run is no longer active.' }, { status: 404 });
@@ -29,5 +32,6 @@ export async function POST(request: Request): Promise<Response> {
       error: 'Cancellation could not be recorded. The turn remains queued; retry cancellation.',
     }, { status: 500 });
   }
+  await record({ action: 'run.cancel', runId: parsed.data.runId, sessionId: run?.sessionId, participantId: run?.participantId });
   return safeJsonResponse({ ok: true });
 }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rmdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -89,6 +89,7 @@ import { POST as ARCHIVE_SESSION } from '@/app/api/sessions/[sessionId]/archive/
 import { POST as RESTORE_SESSION } from '@/app/api/sessions/[sessionId]/restore/route';
 import { POST as POST_MESSAGE } from '@/app/api/agent/message/route';
 import { SessionStore, publicSession, serverAgent } from '@/server/storage/sessionStore';
+import { readActivity } from '@/server/storage/activityLog';
 import { runRegistry } from '@/server/runs/runRegistry';
 import type { DurableSession, PublicSession } from '@/shared/types';
 
@@ -149,6 +150,23 @@ describe('session snapshot and mutation routes', () => {
     routeState.runnersCreated = 0;
     routeState.adapterRequests = [];
     routeState.runInputs = [];
+  });
+
+  it('still returns a saved session when its activity entry cannot be written', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const activity = path.join(routeState.dataDir, 'activity.ndjson');
+    try {
+      await mkdir(activity);
+      const saved = await createViaRoute();
+      expect((await GET_SESSION(new Request('http://localhost'), context(saved.id))).status).toBe(200);
+      await rmdir(activity);
+      const next = await createViaRoute();
+      expect(await readActivity(routeState.dataDir)).toMatchObject({
+        entries: [expect.objectContaining({ action: 'session.create', sessionId: next.id })],
+        incomplete: true,
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally { warn.mockRestore(); }
   });
 
   it('offers summary lists and projected pages/details while full reads remain authoritative', async () => {
@@ -259,6 +277,11 @@ describe('session snapshot and mutation routes', () => {
     }), context(session.id));
     expect(restored.status).toBe(200);
     expect((await (await GET_SESSIONS(new Request('http://localhost/api/sessions'))).json()).sessions).toEqual([expect.objectContaining({ id: session.id })]);
+    expect((await readActivity(routeState.dataDir))?.entries).toEqual([
+      expect.objectContaining({ action: 'session.restore', actor: { source: 'web' }, sessionId: session.id }),
+      expect.objectContaining({ action: 'session.archive.inactive', actor: { source: 'automatic' }, sessionId: session.id }),
+      expect.objectContaining({ action: 'session.create', actor: { source: 'web' }, sessionId: session.id }),
+    ]);
   });
 
   it('rejects an incoming turn during the archive move without appending or executing it', async () => {

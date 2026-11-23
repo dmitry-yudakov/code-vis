@@ -1,5 +1,6 @@
 import { getConfig } from '@/server/config';
 import { authorizePersonalDeviceRequest, requestHasExactOrigin } from '@/server/devices/deviceAuthorization';
+import { webActivityRecorder } from '@/server/devices/activityActor';
 import { getCodeAiLifecycle, type CodeAiLifecycle } from '@/server/lifecycle/codeAiLifecycle';
 import { buildAndRestartRequestSchema, type CodeAiLifecycleSnapshot } from '@/shared/codeAiLifecycle';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
@@ -33,7 +34,8 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const denied = await authorizePersonalDeviceRequest(request);
   if (denied) return denied;
-  if (!requestHasExactOrigin(request, getConfig())) {
+  const config = getConfig();
+  if (!requestHasExactOrigin(request, config)) {
     return safeJsonResponse({ error: 'Request origin is not authorized.' }, { status: 403 });
   }
   const parsed = buildAndRestartRequestSchema.safeParse(await request.json().catch(() => undefined));
@@ -47,8 +49,12 @@ export async function POST(request: Request): Promise<Response> {
   if (!('lifecycle' in access)) {
     return safeJsonResponse({ error: NOT_MANAGED }, { status: 409 });
   }
+  const record = await webActivityRecorder(request, config.dataDir);
   const started = access.lifecycle.start();
-  if (started.accepted) return safeJsonResponse({ snapshot: started.snapshot }, { status: 202 });
+  if (started.accepted) {
+    await record({ action: 'machine.restart' });
+    return safeJsonResponse({ snapshot: started.snapshot }, { status: 202 });
+  }
   return safeJsonResponse({
     error: started.reason === 'not-managed' ? NOT_MANAGED
       : started.reason === 'busy' ? 'CodeAI is already building or restarting.'

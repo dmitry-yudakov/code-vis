@@ -5,9 +5,10 @@ import { getDockerRuntime } from '@/server/execution/dockerRuntime';
 import { validateDockerCheckout } from '@/server/execution/dockerProfile';
 import { getSessionStore, SessionStoreError } from '@/server/storage/sessionStore';
 import { creationFingerprint, replaySessionCreation, withSessionCreationLock, type SessionCreationRequest } from '@/server/storage/creationRequests';
+import type { ActivityActor } from '@/shared/activityLog';
 
-export async function createRequestedSession(request: SessionCreationRequest, config: AppConfig, beforeCreate?: () => Promise<void>) {
-  if (request.checkoutMode === 'worktree') return createManagedWorktree(request, config, beforeCreate);
+export async function createRequestedSession(request: SessionCreationRequest, config: AppConfig, beforeCreate?: () => Promise<void>, actor?: ActivityActor) {
+  if (request.checkoutMode === 'worktree') return createManagedWorktree(request, config, beforeCreate, actor);
   return withSessionCreationLock(config.dataDir, async () => {
     const prior = await replaySessionCreation(request, config);
     if (prior) return prior;
@@ -30,7 +31,7 @@ export async function createRequestedSession(request: SessionCreationRequest, co
       await validateDockerCheckout((await registry.resolve(bindings[0].checkoutId)).realPath, config);
     }
     await beforeCreate?.();
-    return store.createSession({ ...request, beforeSave: beforeCreate, ...(source ? { expectedSourceRevision: source.revision } : {}),
+    return store.createSession({ ...request, beforeSave: beforeCreate, activityActor: actor, ...(source ? { expectedSourceRevision: source.revision } : {}),
       ...(request.creationRequestId ? { creationReceipt: { requestId: request.creationRequestId, fingerprint: creationFingerprint(request),
         ...(request.mcpLaunchFingerprint ? { mcpLaunchFingerprint: request.mcpLaunchFingerprint } : {}) } } : {}) });
   });

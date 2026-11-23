@@ -26,6 +26,8 @@ export { atomicWrite, syncDirectory } from './atomicWrite';
 import { SuspendedTurns } from '@/server/lifecycle/suspendedTurns';
 import { repairClaudeActivity } from './claudeActivityRepair';
 import { workspaceChanged } from '@/server/workspace/workspaceChanges';
+import { automaticActivityActor, type ActivityActor, type ActivityInput } from '@/shared/activityLog';
+import { recordActivity } from './activityLog';
 import {
   AGENT_ROLE_DEFAULT_MODES, AGENT_ROLE_LABELS, PROVIDER_LABELS, humanParticipantId,
 } from '@/shared/participants';
@@ -128,6 +130,7 @@ interface WriterLock {
 interface MutationResult<T> {
   result: T;
   changed: boolean;
+  activity?: ActivityInput;
   /** Display history has its own turn sequence and cannot invalidate a canonical edit. */
   preserveRevision?: true;
   /** Metadata such as an automatic title is not conversation activity. */
@@ -356,7 +359,7 @@ export class SessionStore {
     }
   }
 
-  async createProject(name: string, checkoutIds: string[] = [], options?: { reusePrimary: boolean }): Promise<DurableProject> {
+  async createProject(name: string, checkoutIds: string[] = [], options?: { reusePrimary?: boolean; activityActor?: ActivityActor }): Promise<DurableProject> {
     return this.enqueue(async () => {
       await this.openStore();
       if (options?.reusePrimary && checkoutIds.length === 1) {
@@ -388,6 +391,7 @@ export class SessionStore {
       };
       durableProjectSchema.parse(project);
       await this.writeProject(project);
+      if (options?.activityActor) await recordActivity(this.dataDirectory, { actor: options.activityActor, action: 'project.create', projectId: project.id });
       return structuredClone(project);
     });
   }
@@ -398,7 +402,7 @@ export class SessionStore {
     repositories?: RepositoryBinding[];
     logo?: DurableProject['logo'] | null;
     expectedLogo?: DurableProject['logo'] | null;
-  }): Promise<DurableProject> {
+  }, actor?: ActivityActor): Promise<DurableProject> {
     return this.enqueue(async () => {
       const project = await this.getProject(id);
       this.expectProjectRevision(project, input.expectedRevision);
@@ -423,6 +427,7 @@ export class SessionStore {
           project.logo = record.logo;
         }
         workspaceChanged(this.dataDirectory);
+        if (actor) await recordActivity(this.dataDirectory, { actor, action: 'project.update', projectId: id });
         return structuredClone(project);
       }
       if (input.repositories) await this.refuseManagedProjectBindings(input.repositories.map((binding) => binding.checkoutId));
@@ -437,11 +442,12 @@ export class SessionStore {
       next.updatedAt = this.now().toISOString();
       durableProjectSchema.parse(next);
       await this.writeProject(next);
+      if (actor) await recordActivity(this.dataDirectory, { actor, action: 'project.update', projectId: id });
       return structuredClone(next);
     });
   }
 
-  async deleteProject(id: string, expectedRevision: number): Promise<{ detachedSessionCount: number }> {
+  async deleteProject(id: string, expectedRevision: number, actor?: ActivityActor): Promise<{ detachedSessionCount: number }> {
     return this.enqueue(async () => {
       const project = await this.getProject(id);
       this.expectProjectRevision(project, expectedRevision);
@@ -472,6 +478,7 @@ export class SessionStore {
       await unlink(this.projectLogoPath(id)).catch(() => undefined);
       await syncDirectory(this.projectsDirectory);
       workspaceChanged(this.dataDirectory);
+      if (actor) await recordActivity(this.dataDirectory, { actor, action: 'project.delete', projectId: id });
       return { detachedSessionCount: sessions.length };
     });
   }
@@ -575,7 +582,7 @@ export class SessionStore {
     }
   }
 
-  async archiveSession(id: string, expectedRevision: number, agentCheckId?: string, beforeSave?: () => Promise<void>): Promise<DurableSession> {
+  async archiveSession(id: string, expectedRevision: number, agentCheckId?: string, beforeSave?: () => Promise<void>, actor?: ActivityActor): Promise<DurableSession> {
     return this.enqueue(async () => {
       const session = await this.getSession(id);
       this.expectRevision(session, expectedRevision);
@@ -608,6 +615,10 @@ export class SessionStore {
       }
       await Promise.all([syncDirectory(this.sessionsDirectory), syncDirectory(this.archivedSessionsDirectory)]);
       workspaceChanged(this.dataDirectory);
+      const activityActor = agentCheckId ? automaticActivityActor : actor;
+      if (activityActor) await recordActivity(this.dataDirectory, { actor: activityActor, sessionId: id, projectId: session.projectId,
+        action: agentCheckId ? 'session.archive.completed' : activityActor.source === 'automatic' ? 'session.archive.inactive' : 'session.archive',
+        requestId: agentCheckId });
       return structuredClone(archived);
     });
   }
@@ -625,7 +636,7 @@ export class SessionStore {
       sessions: await this.listSessionSummaries(), archivedSessions: await this.listSessionSummaries({ archived: true }) }));
   }
 
-  async restoreSession(id: string, expectedRevision: number): Promise<DurableSession> {
+  async restoreSession(id: string, expectedRevision: number, actor?: ActivityActor): Promise<DurableSession> {
     return this.enqueue(async () => {
       const session = await this.getArchivedSession(id);
       this.expectRevision(session, expectedRevision);
@@ -646,6 +657,7 @@ export class SessionStore {
       }
       await Promise.all([syncDirectory(this.archivedSessionsDirectory), syncDirectory(this.sessionsDirectory)]);
       workspaceChanged(this.dataDirectory);
+      if (actor) await recordActivity(this.dataDirectory, { actor, action: 'session.restore', sessionId: id, projectId: session.projectId });
       return structuredClone(restored);
     });
   }
@@ -683,6 +695,7 @@ export class SessionStore {
     repositories?: RepositoryBinding[];
     persistWorktreeIntent?: (session: DurableSession) => Promise<void>;
     beforeSave?: () => Promise<void>;
+    activityActor?: ActivityActor;
   }): Promise<DurableSession> {
     return this.enqueue(async () => {
       await this.openStore();
@@ -779,7 +792,10 @@ export class SessionStore {
       durableSessionSchema.parse(session);
       await input.beforeSave?.();
       if (input.persistWorktreeIntent) await input.persistWorktreeIntent(session);
-      else await this.writeSession(session);
+      else {
+        await this.writeSession(session);
+        await this.recordSessionCreation(session, input.activityActor);
+      }
       return structuredClone(session);
     });
   }
@@ -790,7 +806,7 @@ export class SessionStore {
   }
 
   /** An intent owns this identity. Reconciliation must never overwrite a saved conversation. */
-  async savePreparedWorktreeSession(prepared: DurableSession): Promise<DurableSession> {
+  async savePreparedWorktreeSession(prepared: DurableSession, actor?: ActivityActor): Promise<DurableSession> {
     return this.enqueue(async () => {
       await this.openStore();
       let existing: DurableSession | undefined;
@@ -809,8 +825,15 @@ export class SessionStore {
       durableSessionSchema.parse(prepared);
       if (!prepared.worktree) throw new Error('A prepared worktree session needs its provenance.');
       await this.writeSession(prepared);
+      await this.recordSessionCreation(prepared, actor);
       return structuredClone(prepared);
     });
+  }
+
+  private async recordSessionCreation(session: DurableSession, actor?: ActivityActor): Promise<void> {
+    if (actor) await recordActivity(this.dataDirectory, { actor, action: 'session.create',
+      sessionId: session.id, projectId: session.projectId, participantId: session.primaryAgentId,
+      requestId: session.creationReceipt?.requestId });
   }
 
   private async refuseManagedProjectBindings(checkoutIds: string[]): Promise<void> {
@@ -980,7 +1003,7 @@ export class SessionStore {
     });
   }
 
-  async setAgentArchiveAllowed(id: string, allowed: boolean, expectedAllowed: boolean): Promise<DurableSession> {
+  async setAgentArchiveAllowed(id: string, allowed: boolean, expectedAllowed: boolean, actor?: ActivityActor): Promise<DurableSession> {
     return this.mutate(id, session => {
       if (Boolean(session.allowAgentArchive) !== expectedAllowed) {
         throw new SessionStoreError('conflict', 'Archive permission changed on another device. Reload and try again.');
@@ -990,7 +1013,8 @@ export class SessionStore {
       if (session.version < AGENT_ARCHIVE_SESSION_VERSION) session.version = AGENT_ARCHIVE_SESSION_VERSION;
       session.allowAgentArchive = allowed;
       delete session.agentArchiveCheck;
-      return { result: session, changed: true };
+      return { result: session, changed: true, activity: actor && { actor, sessionId: id, projectId: session.projectId,
+        action: allowed ? 'session.autoclose.enable' : 'session.autoclose.disable' } };
     });
   }
 
@@ -1019,6 +1043,7 @@ export class SessionStore {
     role: AgentRole,
     requestId: string,
     beforeSave?: () => Promise<void>,
+    actor?: ActivityActor,
   ): Promise<DurableSession> {
     return this.mutate(id, async (session) => {
       const prior = session.participants.find((item): item is ServerAgentParticipant => (
@@ -1043,8 +1068,9 @@ export class SessionStore {
       let suffix = 2;
       while (session.participants.some((item) => item.displayName === displayName)) displayName = `${rootName} ${suffix++}`;
       await beforeSave?.();
+      const participantId = randomUUID();
       session.participants.push({
-        id: randomUUID(),
+        id: participantId,
         kind: 'agent',
         displayName,
         provider,
@@ -1053,17 +1079,19 @@ export class SessionStore {
         session: { provider, started: false },
         creationRequestId: requestId,
       });
-      return { result: session, changed: true };
+      return { result: session, changed: true, activity: actor && { actor, action: 'participant.add',
+        sessionId: id, projectId: session.projectId, participantId, requestId } };
     });
   }
 
-  async setPrimaryAgent(id: string, participantId: string, expectedRevision: number): Promise<DurableSession> {
+  async setPrimaryAgent(id: string, participantId: string, expectedRevision: number, actor?: ActivityActor): Promise<DurableSession> {
     return this.mutate(id, (session) => {
       this.expectRevision(session, expectedRevision);
       if (!serverAgent(session, participantId)) throw new Error('The main participant must be an agent in this session');
       if (session.primaryAgentId === participantId) return { result: session, changed: false };
       session.primaryAgentId = participantId;
-      return { result: session, changed: true };
+      return { result: session, changed: true, activity: actor && { actor, action: 'participant.primary',
+        sessionId: id, projectId: session.projectId, participantId } };
     });
   }
 
@@ -1108,6 +1136,7 @@ export class SessionStore {
     id: string,
     repositories: RepositoryBinding[],
     expectedRevision: number,
+    actor?: ActivityActor,
   ): Promise<DurableSession> {
     return this.enqueue(async () => {
       const session = await this.getSession(id);
@@ -1153,6 +1182,7 @@ export class SessionStore {
       nextSession.updatedAt = updatedAt;
       durableSessionSchema.parse(nextSession);
       await this.writeSession(nextSession);
+      if (actor) await recordActivity(this.dataDirectory, { actor, action: 'session.repositories', sessionId: id, projectId: session.projectId });
       return structuredClone(nextSession);
     });
   }
@@ -1371,6 +1401,7 @@ export class SessionStore {
         if (!outcome.preserveRevision) session.revision += 1;
         if (!outcome.preserveUpdatedAt) session.updatedAt = this.now().toISOString();
         await this.writeSession(session);
+        if (outcome.activity) await recordActivity(this.dataDirectory, outcome.activity);
       }
       return structuredClone(outcome.result);
     });

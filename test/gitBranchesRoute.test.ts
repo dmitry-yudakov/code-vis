@@ -21,6 +21,7 @@ vi.mock('@/server/repository/checkoutRegistry', () => ({
   getCheckoutRegistry: () => ({ resolve: state.resolve }),
 }));
 vi.mock('@/server/repository/gitBranches', () => ({ switchGitBranch: state.switch, listGitBranches: state.list }));
+vi.mock('@/server/storage/activityLog', () => ({ recordActivity: vi.fn() }));
 
 import { GET, POST } from '@/app/api/repository/branches/route';
 import { machineOperationAllowed } from '@/server/machines/machineRoutePolicy';

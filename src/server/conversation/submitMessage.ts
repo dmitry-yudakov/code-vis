@@ -7,6 +7,9 @@ import type { AgentEvent } from '@/shared/types';
 import { agentMessageRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { getConfig } from '@/server/config';
 import { authenticatedMachineRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
+import { recordActivity } from '@/server/storage/activityLog';
+import type { ActivityActor } from '@/shared/activityLog';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import {
   sessionStoreStatus, getSessionStore, primaryRepository, serverAgent,
@@ -42,7 +45,7 @@ import type {
 
 export async function submitMessage(
   request: Request, recovery?: SuspendedTurn, laterQueuedSessions: ReadonlySet<string> = new Set(),
-  integration?: { fingerprint: string; authorize(): Promise<void> },
+  integration?: { fingerprint: string; authorize(): Promise<void>; actor: ActivityActor },
 ): Promise<Response> {
   const contentLength = Number(request.headers.get('content-length') || 0);
   if (contentLength > 6_000_000) return safeJsonResponse({ error: 'Request body is too large.' }, { status: 413 });
@@ -59,6 +62,7 @@ export async function submitMessage(
 
   const data = parsed.data;
   const config = getConfig();
+  const actor = recovery ? undefined : integration?.actor ?? await webActor(request);
   if (data.diagramAttachments.length > config.maxDiagramAttachments) {
     return safeJsonResponse({ error: `At most ${config.maxDiagramAttachments} diagrams may be attached.` }, { status: 400 });
   }
@@ -371,6 +375,8 @@ export async function submitMessage(
           error: 'This message request was already accepted. Reload the session to see its durable state.',
         }, { status: 409 });
       }
+      if (actor) await recordActivity(config.dataDir, { actor, action: 'message.accept',
+        sessionId: session.id, projectId: session.projectId, messageId: data.messageId, participantId: participant.id, runId, mode });
     }
   } catch (error) {
     runRegistry.release(runId);

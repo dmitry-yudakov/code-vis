@@ -5,6 +5,7 @@ import {
 } from '@/server/storage/sessionStore';
 import { createSessionRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 import { autoArchiveSessions } from '@/server/storage/autoArchiveSessions';
 import { createRequestedSession } from '@/server/conversation/sessionCreation';
 import { WorktreeCreationBusyError } from '@/server/repository/managedWorktrees';
@@ -49,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!parsed.success) return safeJsonResponse({ error: 'Choose valid session settings. Worktree creation requires one source repository and a creation request UUID.', creationState: 'none' }, { status: 400 });
     const config = getConfig();
     creationRequestId = parsed.data.creationRequestId;
-    const session = await createRequestedSession(parsed.data, config);
+    const session = await createRequestedSession(parsed.data, config, undefined, await webActor(request));
     return safeJsonResponse({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error), ...(error instanceof WorktreeCreationBusyError ? { worktreeConflict: worktreeCreationConflictSchema.parse(error.worktreeConflict) } : {}), ...(creationRequestId ? await sessionCreationFailure(creationRequestId, getConfig()) : {}) }, { status: sessionStoreStatus(error) });

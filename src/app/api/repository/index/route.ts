@@ -3,6 +3,7 @@ import { getConfig } from '@/server/config';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { changeGitIndex } from '@/server/repository/gitChanges';
 import { authorizeDeviceRequest, requestHasExactOrigin } from '@/server/devices/deviceAuthorization';
+import { webActivityRecorder } from '@/server/devices/activityActor';
 import { boundedRequestBody } from '@/server/machines/boundedBody';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
 
@@ -24,8 +25,10 @@ export async function POST(request: Request): Promise<Response> {
   catch { return safeJsonResponse({ error: 'Invalid staging request.' }, { status: 400 }); }
   if (!parsed.success) return safeJsonResponse({ error: 'Invalid staging request.' }, { status: 400 });
   try {
+    const record = await webActivityRecorder(request, config.dataDir);
     const checkout = await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).resolve(parsed.data.checkoutId);
     await changeGitIndex(checkout.realPath, parsed.data.action, parsed.data.paths, parsed.data.indexState);
+    await record({ action: parsed.data.action === 'stage' ? 'git.stage' : 'git.unstage', checkoutId: checkout.id });
     return safeJsonResponse({ ok: true });
   } catch (error) { return safeJsonResponse({ error: publicError(error) }, { status: 409 }); }
 }

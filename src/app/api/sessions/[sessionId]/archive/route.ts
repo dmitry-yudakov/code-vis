@@ -7,6 +7,7 @@ import {
   publicError, safeJsonResponse, sessionLifecycleRequestSchema,
 } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,7 +23,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       return safeJsonResponse({ error: 'A valid expected revision is required.' }, { status: 400 });
     }
     const { sessionId } = await context.params;
-    const session = await archiveSession(sessionId, parsed.data.expectedRevision, getConfig());
+    const session = await archiveSession(sessionId, parsed.data.expectedRevision, getConfig(), undefined, await webActor(request));
     return safeJsonResponse({ session: arenaSessionSummary(session) });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });

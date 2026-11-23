@@ -8,6 +8,7 @@ import { provisionGrant, revokeGrant, authorizeIntegration } from '@/server/inte
 import { McpListings, clip, workspaceHeader, runFacts } from '@/server/integrations/mcp/reads';
 import { getConfig } from '@/server/config';
 import { getSessionStore, publicSession, SessionStore } from '@/server/storage/sessionStore';
+import { readActivity } from '@/server/storage/activityLog';
 import { mcpToolSchemas, type McpConnection, type McpScope } from '@/shared/mcp';
 import { createTurn } from '@/shared/turnActivity';
 import type { ExecutorSnapshot } from '@/shared/types';
@@ -64,6 +65,13 @@ describe('scoped running-server MCP bridge', () => {
     expect((await call('approve_permission')).status).toBe(400);
     expect((await call('archive_session', { sessionId: randomUUID(), expectedRevision: 0 })).status).toBe(403);
     await revokeGrant(getConfig(), connection.grantId); expect((await call('get_workspace')).status).toBe(401);
+    const { entries } = (await readActivity(getConfig().dataDir, 'mcp'))!;
+    expect(entries).toEqual([
+      expect.objectContaining({ action: 'mcp.call', operation: 'archive_session', status: 403, outcome: 'denied',
+        actor: { source: 'mcp', id: connection.grantId, label: 'Test observer' } }),
+      expect.objectContaining({ action: 'mcp.call', operation: 'request', status: 400, outcome: 'failed' }),
+    ]);
+    expect(JSON.stringify(entries)).not.toContain(connection.credential);
   });
   it('writes only private digest/connection records and rejects credential placement through symlinks', async () => {
     const directory = path.join(getConfig().dataDir, 'integrations/mcp');
@@ -129,6 +137,22 @@ describe('scoped running-server MCP bridge', () => {
     expect((await call('create_session', input)).body.runId).toBe(accepted.body.runId);
     expect(mocks.submissions).toBe(2); expect(await store.listSessions()).toHaveLength(1);
     expect((await store.getSession(partial.body.sessionId)).messages).toHaveLength(1);
+    const { entries } = (await readActivity(getConfig().dataDir, 'mcp'))!;
+    expect(entries.filter(entry => entry.action === 'session.create')).toEqual([
+      expect.objectContaining({ sessionId: partial.body.sessionId, requestId: input.creationRequestId }),
+    ]);
+    expect(entries).toContainEqual(expect.objectContaining({
+      action: 'mcp.call', operation: 'create_session', outcome: 'partial', status: 200,
+      sessionId: partial.body.sessionId, messageId: input.firstMessage.messageId,
+    }));
+    expect(entries).toContainEqual(expect.objectContaining({ action: 'mcp.call', operation: 'list_projects', outcome: 'succeeded' }));
+    expect(JSON.stringify(entries)).not.toContain(input.firstMessage.text);
+    const retained = await store.getSession(partial.body.sessionId);
+    await store.archiveSession(retained.id, retained.revision);
+    expect((await call('create_session', input)).body.state).toBe('archived');
+    expect((await readActivity(getConfig().dataDir, 'mcp'))?.entries[0]).toMatchObject({
+      action: 'mcp.call', operation: 'create_session', outcome: 'replayed', sessionId: retained.id,
+    });
   });
   it('fits escaping-heavy transcript detail within serialized JSON bytes with explicit clipping', async () => {
     const store = getSessionStore(getConfig().dataDir); const session = await store.createSession({ provider: 'codex' });
@@ -214,6 +238,10 @@ describe('scoped running-server MCP bridge', () => {
     await revokeGrant(getConfig(), connection.grantId);
     await expect(reader.read()).rejects.toThrow('no longer authorized'); reader.releaseLock();
     connection = await grant(); const fresh = await subscribe(); expect(fresh.status).toBe(200); await fresh.body!.cancel();
+    const subscriptions = (await readActivity(getConfig().dataDir, 'mcp'))!.entries;
+    expect(subscriptions).toHaveLength(11);
+    expect(subscriptions.filter(entry => entry.action === 'mcp.call' && entry.operation === 'subscribe' && entry.status === 200)).toHaveLength(10);
+    expect(subscriptions).toContainEqual(expect.objectContaining({ action: 'mcp.call', operation: 'subscribe', status: 429, outcome: 'failed' }));
   }, 15000);
   it('reconciles an archive response and rejects stale retries after Restore and rearchive', async () => {
     connection = await grant(['sessions:archive']); const store = getSessionStore(getConfig().dataDir); const s = await store.createSession({ provider: 'codex' });

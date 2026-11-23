@@ -6,6 +6,7 @@ import {
   publicError, safeJsonResponse, sessionLifecycleRequestSchema,
 } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const { sessionId } = await context.params;
     const config = getConfig();
     const session = await getSessionStore(config.dataDir, config.hostLabel)
-      .restoreSession(sessionId, parsed.data.expectedRevision);
+      .restoreSession(sessionId, parsed.data.expectedRevision, await webActor(request));
     return safeJsonResponse({ session: arenaSessionSummary(session) });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });

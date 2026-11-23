@@ -6,6 +6,7 @@ import { resolveSelfProject } from '@/server/repository/selfProject';
 import { projectBindingsFingerprint } from '@/server/storage/creationRequests';
 import { getSessionStore, SessionStoreError } from '@/server/storage/sessionStore';
 import type { CodeAiSessionAvailability, PreparedCodeAiContext } from '@/shared/codeAiSession';
+import type { ActivityActor } from '@/shared/activityLog';
 
 export async function codeAiSessionAvailability(config: AppConfig): Promise<CodeAiSessionAvailability> {
   const lifecycle = getCodeAiLifecycle();
@@ -18,11 +19,11 @@ export async function codeAiSessionAvailability(config: AppConfig): Promise<Code
   return { available: true, machineId: machine.id, phase: lifecycle.snapshot().phase, checkoutId: checkout.id, checkoutName: checkout.name };
 }
 
-export async function prepareCodeAiSession(config: AppConfig) {
+export async function prepareCodeAiSession(config: AppConfig, activityActor?: ActivityActor) {
   const availability = await codeAiSessionAvailability(config);
   if (!availability.available) throw new SessionStoreError('conflict', availability.message || 'This CodeAI server is not managed.');
   if (availability.phase !== 'idle') throw new SessionStoreError('conflict', 'CodeAI is building or restarting. Keep the draft and retry once it is ready.');
-  const project = await getSessionStore(config.dataDir, config.hostLabel).createProject('CodeAI', [availability.checkoutId], { reusePrimary: true });
+  const project = await getSessionStore(config.dataDir, config.hostLabel).createProject('CodeAI', [availability.checkoutId], { reusePrimary: true, activityActor });
   return { availability, project, preparedContext: { projectId: project.id, checkoutId: availability.checkoutId,
     bindingsFingerprint: projectBindingsFingerprint(project) } satisfies PreparedCodeAiContext };
 }

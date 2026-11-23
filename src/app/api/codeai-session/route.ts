@@ -1,6 +1,7 @@
 import { sessionCreationFailure } from '@/server/storage/creationRequests';
 import { getConfig } from '@/server/config';
 import { authenticatedMachineRequest, authorizePersonalDeviceRequest, requestHasExpectedMutationOrigin } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 import { boundedRequestBody } from '@/server/machines/boundedBody';
 import { privateJson } from '@/server/diagnostics/reportAccess';
 import { publicSession, sessionStoreStatus } from '@/server/storage/sessionStore';
@@ -36,12 +37,13 @@ export async function POST(request: Request): Promise<Response> {
     const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await boundedRequestBody(request, 8_000)));
     const parsed = codeAiSessionRequestSchema.safeParse(body);
     if (!parsed.success) return privateJson({ error: 'Choose valid CodeAI session settings.', creationState: 'none' }, { status: 400 });
-    if (parsed.data.action === 'prepare') return privateJson(await prepareCodeAiSession(config));
+    const actor = await webActor(request);
+    if (parsed.data.action === 'prepare') return privateJson(await prepareCodeAiSession(config, actor));
     const { action: _action, preparedContext, ...settings } = parsed.data;
     creationRequestId = settings.creationRequestId;
     const creation = createSessionRequestSchema.parse({ ...settings, execution: 'local', projectId: preparedContext.projectId,
       expectedProjectBindings: preparedContext.bindingsFingerprint, expectedPrimaryCheckoutId: preparedContext.checkoutId });
-    const session = await createRequestedSession(creation, config, () => validatePreparedCodeAiSession(preparedContext, config));
+    const session = await createRequestedSession(creation, config, () => validatePreparedCodeAiSession(preparedContext, config), actor);
     return privateJson({ session: publicSession(session) }, { status: 201 });
   } catch (error) {
     return privateJson({ error: publicError(error),

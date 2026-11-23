@@ -50,6 +50,12 @@ grant; the server checks scopes again on dispatch and immediately before mutatio
 session includes its bound first message without `messages:send`. Any separate `send_message`,
 even to an empty session, requires `messages:send`. Participant addition does not send a message.
 
+Open **More → Activity log** on this machine and choose **MCP** as the source to see calls from
+verified grants. Each entry shows the grant, operation, outcome and any related session or message
+IDs. The log also records saved changes, so a launch can show a session creation and a first
+message acceptance alongside the tool call. The log keeps recent metadata in rotating local files.
+Prompt text and attachments stay in the conversation.
+
 | Tool | Input and behavior |
 | --- | --- |
 | `get_workspace` | `{}` → identity, stable snapshot token, observation time, state counts and execution-specific provider/model/effort/mode choices |

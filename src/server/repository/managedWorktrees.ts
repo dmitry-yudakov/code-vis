@@ -17,6 +17,7 @@ import { durableSessionSchema } from '@/shared/sessionSchema';
 import type { DurableSession, ServerCheckout, SessionWorktree, WorktreeCapability } from '@/shared/types';
 import { acquireCommonGitRead, GIT_READ_OPTIONS, gitReadEnvironment, isolatedGitRead, withGitReadLease } from './gitRead';
 import { DockerTerminationError } from '@/server/execution/dockerRuntime';
+import { automaticActivityActor, type ActivityActor } from '@/shared/activityLog';
 
 const MAX_RECORDS = 1_000;
 const MAX_RECORD_BYTES = 128 * 1024;
@@ -410,7 +411,9 @@ export async function acquireManagedGitRead(location: string, config: AppConfig,
   return release;
 }
 
-async function finish(record: WorktreeRecord, config: AppConfig, store: SessionStore, writeLease: symbol): Promise<DurableSession> {
+async function finish(
+  record: WorktreeRecord, config: AppConfig, store: SessionStore, writeLease: symbol, actor = automaticActivityActor,
+): Promise<DurableSession> {
   if (record.state === 'unavailable') conflict(record.reason || 'Partial worktree creation is ambiguous. Inspect the retained Git state.');
   await validatePlacement(record, config);
   if (record.request.execution === 'docker' && (record.state === 'intent' || record.state === 'creating')) {
@@ -442,7 +445,7 @@ async function finish(record: WorktreeRecord, config: AppConfig, store: SessionS
     const branchExists = (await git(record.originPath, ['rev-parse', '--verify', '--quiet', `refs/heads/${record.session.worktree!.branch}`], [1], undefined, writeLease)).trim();
     if (!destinationExists && !metadataExists && !branchExists) {
       record.state = 'intent'; await writeRecord(config, record);
-      return finish(record, config, store, writeLease);
+      return finish(record, config, store, writeLease, actor);
     }
     // Only an entirely completed, clean baseline is unambiguous. Never reset partial/user work.
     // A failed inspection proves no corruption. Retain the retryable intent on helper/IO failure;
@@ -459,7 +462,7 @@ async function finish(record: WorktreeRecord, config: AppConfig, store: SessionS
     record.state = 'materialized'; await writeRecord(config, record);
   }
   await linkage(record, config, writeLease);
-  const session = await store.savePreparedWorktreeSession(record.session as DurableSession);
+  const session = await store.savePreparedWorktreeSession(record.session as DurableSession, actor);
   record.state = 'ready'; delete record.reason; await writeRecord(config, record);
   return session;
 }
@@ -474,7 +477,7 @@ async function dockerCreationPreflight(source: string, config: AppConfig): Promi
   catch (error) { conflict(error instanceof Error ? error.message : 'Docker cannot mount this source.'); }
 }
 
-export async function createManagedWorktree(request: CreationRequest, config: AppConfig, beforeCreate?: () => Promise<void>): Promise<DurableSession> {
+export async function createManagedWorktree(request: CreationRequest, config: AppConfig, beforeCreate?: () => Promise<void>, actor?: ActivityActor): Promise<DurableSession> {
   const scope = globalThis as typeof globalThis & {
     __codeAiWorktreeRequests?: Map<string, { requestId: string | undefined; count: number }>;
   };
@@ -493,14 +496,14 @@ export async function createManagedWorktree(request: CreationRequest, config: Ap
       const prior = await replaySessionCreation(request, config);
       if (prior) return prior;
       await beforeCreate?.();
-      return materializeWorktree(request, config, beforeCreate);
+      return materializeWorktree(request, config, beforeCreate, actor);
     });
   } finally {
     if (--entry.count === 0) requests.delete(config.dataDir);
   }
 }
 
-async function materializeWorktree(request: CreationRequest, config: AppConfig, beforeCreate?: () => Promise<void>): Promise<DurableSession> {
+async function materializeWorktree(request: CreationRequest, config: AppConfig, beforeCreate?: () => Promise<void>, actor?: ActivityActor): Promise<DurableSession> {
   const admission = runRegistry.acquireWorktreeCreation();
   if (!admission.acquired) return creationBusy(config, admission.conflict);
   const lease = admission.lease;
@@ -515,7 +518,7 @@ async function materializeWorktree(request: CreationRequest, config: AppConfig, 
       if (prior) {
         if (creationFingerprint(prior.request) !== creationFingerprint(request)) conflict('Creation request id was already used with different choices.');
         await creationScopes(lease, records, prior.originPath, prior.destination, config, prior.session.worktree!.originCheckoutId);
-        return await finish(prior, config, store, lease.token);
+        return await finish(prior, config, store, lease.token, actor);
       }
       if (await lstat(path.join(config.dataDir, 'worktrees', `${request.creationRequestId}.json`)).catch(() => undefined)) conflict('This creation journal is damaged; its retained state requires inspection.');
       const { getCheckoutRegistry } = await import('./checkoutRegistry');
@@ -548,7 +551,7 @@ async function materializeWorktree(request: CreationRequest, config: AppConfig, 
           root: config.worktreesRoot, parents: rootProof, destination, checkoutId: managedCheckoutId(destination), state: 'intent' };
         await writeRecord(config, record);
       });
-      return await finish(record, config, store, lease.token);
+      return await finish(record, config, store, lease.token, actor);
     } catch (error) {
       if (error instanceof SessionStoreError) throw error;
       if ((error as NodeJS.ErrnoException)?.code) conflict('Worktree creation could not finish. Its recorded intent and any created worktree are retained. Check storage and retry the same request.');

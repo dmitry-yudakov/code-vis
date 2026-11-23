@@ -4,6 +4,7 @@ import {
 } from '@/server/storage/sessionStore';
 import { publicError, safeJsonResponse, sessionArchivePermissionRequestSchema } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 import { sessionCanvases, sessionPage } from '@/shared/sessionPaging';
 
 export const runtime = 'nodejs';
@@ -50,7 +51,7 @@ export async function PATCH(request: Request, context: SessionRouteContext): Pro
     const { sessionId } = await context.params;
     const config = getConfig();
     const session = await getSessionStore(config.dataDir, config.hostLabel).setAgentArchiveAllowed(
-      sessionId, parsed.data.allowAgentArchive, parsed.data.expectedAllowAgentArchive,
+      sessionId, parsed.data.allowAgentArchive, parsed.data.expectedAllowAgentArchive, await webActor(request),
     );
     return safeJsonResponse({ session: publicSession(session) });
   } catch (error) {

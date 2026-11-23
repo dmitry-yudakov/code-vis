@@ -1,4 +1,5 @@
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActivityRecorder } from '@/server/devices/activityActor';
 import { getConfig } from '@/server/config';
 import { getSessionStore, sessionStoreStatus } from '@/server/storage/sessionStore';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
@@ -21,6 +22,7 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = undoTurnRequestSchema.safeParse(raw);
   if (!parsed.success) return safeJsonResponse({ error: 'Invalid Undo request.' }, { status: 400 });
   const config = getConfig(); const store = getSessionStore(config.dataDir, config.hostLabel);
+  const record = await webActivityRecorder(request, config.dataDir);
   let session;
   try { session = await store.getSession(parsed.data.sessionId); }
   catch (error) { return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) }); }
@@ -41,7 +43,10 @@ export async function POST(request: Request): Promise<Response> {
   const release = runRegistry.acquireCheckoutWrite(checkout.realPath);
   if (!release) return safeJsonResponse({ error: 'The checkout is busy with another turn, repository read, or build. Try Undo after it finishes.' }, { status: 409 });
   try {
-    return safeJsonResponse({ checkpoint: await checkpoints.undo(parsed.data.checkpointId, release.token) });
+    const checkpoint = await checkpoints.undo(parsed.data.checkpointId, release.token);
+    await record({ action: 'run.undo', sessionId: session.id, projectId: session.projectId,
+      messageId: identity.messageId, checkoutId: checkout.id, requestId: checkpoint.id });
+    return safeJsonResponse({ checkpoint });
   } catch (error) {
     const known = error instanceof Error && error.name === 'CheckpointError';
     return safeJsonResponse({ error: known ? error.message : 'Undo could not validate recovery. No automatic retry is available.' }, {

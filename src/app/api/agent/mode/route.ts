@@ -1,5 +1,6 @@
 import { changeRunModeRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActivityRecorder } from '@/server/devices/activityActor';
 import { runRegistry } from '@/server/runs/runRegistry';
 
 export const runtime = 'nodejs';
@@ -14,7 +15,11 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = changeRunModeRequestSchema.safeParse(raw);
   if (!parsed.success) return safeJsonResponse({ error: 'Mode change request is invalid.' }, { status: 400 });
   try {
+    const record = await webActivityRecorder(request);
+    const run = runRegistry.currentRuns.find(item => item.runId === parsed.data.runId);
     const result = await runRegistry.changeMode(parsed.data.runId, parsed.data.mode);
+    if (result.ok) await record({ action: 'run.mode', runId: parsed.data.runId,
+      sessionId: run?.sessionId, participantId: run?.participantId, mode: parsed.data.mode });
     return result.ok ? safeJsonResponse(result) : safeJsonResponse({ error: result.error }, { status: result.status });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: 500 });

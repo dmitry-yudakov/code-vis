@@ -3,6 +3,7 @@ import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { getSessionStore } from '@/server/storage/sessionStore';
 import { createProjectRequestSchema, publicError, safeJsonResponse } from '@/shared/protocol';
 import { authorizeDeviceRequest } from '@/server/devices/deviceAuthorization';
+import { webActor } from '@/server/devices/activityActor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
     const registry = getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth);
     await registry.resolveMany(parsed.data.checkoutIds);
     const project = await getSessionStore(config.dataDir, config.hostLabel)
-      .createProject(parsed.data.name, parsed.data.checkoutIds);
+      .createProject(parsed.data.name, parsed.data.checkoutIds, { activityActor: await webActor(request) });
     return safeJsonResponse({ project }, { status: 201 });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: 400 });

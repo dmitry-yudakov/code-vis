@@ -57,6 +57,7 @@ import { SessionSetupDialog } from '@/features/session-launch/SessionSetupDialog
 import type { LaunchSettings } from '@/features/session-launch/sessionLaunch';
 import { Arena } from '@/features/arena/Arena';
 import { MachineSettingsDialog } from '@/features/arena/MachineSettingsDialog';
+import { ActivityLogDialog } from '@/features/arena/ActivityLogDialog';
 import { ObserverDialog } from '@/features/observer/ObserverDialog';
 import { buildMultiMachineInbox, unreadArenaAttention, viewedArenaCompletionIds, type ArenaAttentionItem } from '@/features/arena/arenaModel';
 import { ARENA_SECTION_PATHS, arenaSectionForPathname } from '@/features/arena/routes';
@@ -200,6 +201,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const moreMenuRef = useRef<DesktopPopoverHandle>(null);
   const [machineSettingsOpen, setMachineSettingsOpen] = useState(false);
   const [observerOpen, setObserverOpen] = useState(false);
+  const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [providerUpdateCount, setProviderUpdateCount] = useState(0);
   const [sessions, setSessions] = useState<SessionSnapshot[]>([]);
   const [sessionList, setSessionList] = useState<{ scope: string; items: ArenaSessionSummary[] }>({ scope: '', items: [] });
@@ -3272,6 +3274,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           setObserverOpen(false); lifecycle.ask();
         }}
         onClose={() => setObserverOpen(false)} />
+      {activityLogOpen && !immersiveActive && <ActivityLogDialog compact={compact}
+        machine={arena.machines.find(entry => entry.machine.kind === 'local')} onClose={() => setActivityLogOpen(false)} />}
       {!loading && <MachineSettingsDialog
         open={machineSettingsOpen}
         immersiveEntry={compact ? <>
@@ -3320,6 +3324,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               Machine settings
               {availableProviderUpdateCount > 0 && <span className="settings-update-dot" aria-hidden="true" />}
             </Button>
+            <Button onClick={() => { moreMenuRef.current?.close(); setActivityLogOpen(true); }}>Activity log</Button>
             {launcher.availabilityError && <Button type="button" variant="text" color="inherit" onClick={() => void launcher.refreshAvailability()}>{launcher.availabilityError}</Button>}
             {launcher.availability && (launcher.availability.available || launcher.availability.reason === 'checkout-unavailable') && <Button type="button" variant="text" color="inherit" disabled={!launcher.availability.available || launcher.availability.phase !== 'idle'} title={!launcher.availability.available ? launcher.availability.message : launcher.availability.phase !== 'idle' ? `CodeAI is ${launcher.availability.phase}. Retry after it is ready.` : undefined} onClick={() => {
               const source = moreMenuRef.current?.trigger;

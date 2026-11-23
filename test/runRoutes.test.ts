@@ -140,7 +140,7 @@ describe('run discovery and stream routes', () => {
     expect(runRegistry.start({
       runId,
       sessionId: crypto.randomUUID(),
-      participantId: 'agent-routed',
+      participantId: crypto.randomUUID(),
       cancel: () => { cancelled = true; },
     })).toBe(true);
     try {

@@ -4,9 +4,11 @@ import { boundedRequestBody } from '@/server/machines/boundedBody';
 import { workspaceFeeds } from '@/server/workspace/workspaceFeed';
 import { snapshotStream } from '@/server/workspace/snapshotStream';
 import { safeJsonResponse } from '@/shared/protocol';
-import { MCP_REQUEST_BYTES, MCP_RESPONSE_BYTES, mcpBridgeRequestSchema, mcpToolScopes } from '@/shared/mcp';
+import { MCP_REQUEST_BYTES, MCP_RESPONSE_BYTES, mcpBridgeRequestSchema, mcpToolScopes, type McpBridgeRequest } from '@/shared/mcp';
+import type { ActivityActor, McpActivity } from '@/shared/activityLog';
+import { recordActivity } from '@/server/storage/activityLog';
 import { sessionStoreStatus } from '@/server/storage/sessionStore';
-import { authorizeIntegration, grantExists, McpError } from './grants';
+import { authorizeIntegration, grantExists, McpError, type McpGrant } from './grants';
 import { currentSnapshot, executionChoices, McpListings, projectRows, readSession, sessionRow, workspaceHeader } from './reads';
 import { addParticipant, archive, createSession, sendMessage } from './actions';
 
@@ -34,10 +36,26 @@ function boundedResult(result: unknown): Response {
   if (Buffer.byteLength(JSON.stringify(result)) > MCP_RESPONSE_BYTES) throw new McpError('too_large', 'Result exceeds 64 KiB. Request a smaller page or bounded detail.', 413);
   return safeJsonResponse(result);
 }
+const grantActor = (grant: McpGrant): ActivityActor => ({ source: 'mcp', id: grant.id, label: grant.name });
+const rejectedOutcome = (status: number) => status === 401 || status === 403 ? 'denied' : 'failed';
+
+function operationTargets(input: McpBridgeRequest['input']) {
+  return {
+    sessionId: 'sessionId' in input ? input.sessionId : undefined,
+    projectId: 'projectId' in input ? input.projectId : undefined,
+    participantId: 'participantId' in input ? input.participantId : undefined,
+    messageId: 'messageId' in input ? input.messageId : 'firstMessage' in input ? input.firstMessage?.messageId : undefined,
+    checkoutId: 'checkoutId' in input ? input.checkoutId : undefined,
+    requestId: 'creationRequestId' in input ? input.creationRequestId : 'requestId' in input ? input.requestId : undefined,
+  };
+}
+
 export async function bridgeOperation(request: Request): Promise<Response> {
   const config = getConfig(); let release: (() => void) | undefined;
+  let activity: McpActivity | undefined;
   try {
     const grant = await authorizeIntegration(request, config);
+    activity = { actor: grantActor(grant), action: 'mcp.call', operation: 'request', outcome: 'succeeded', status: 200 };
     const state = stateFor(config); const count = state.operations.get(grant.id) ?? 0;
     if (count >= 2) throw new McpError('busy', 'Two MCP operations are already in flight for this grant.', 429, true);
     state.operations.set(grant.id, count + 1);
@@ -49,8 +67,10 @@ export async function bridgeOperation(request: Request): Promise<Response> {
     const parsed = mcpBridgeRequestSchema.safeParse(raw);
     if (!parsed.success) throw new McpError('invalid', 'Invalid MCP operation or arguments.', 400);
     const { operation } = parsed.data;
+    Object.assign(activity, operationTargets(parsed.data.input), { operation });
     const required = operation === 'release_listing' ? undefined : mcpToolScopes[operation];
     const authorize = async () => { await authorizeIntegration(request, config, required); };
+    const access = { authorize, actor: activity.actor };
     await authorize();
     let result: unknown;
     switch (operation) {
@@ -74,20 +94,51 @@ export async function bridgeOperation(request: Request): Promise<Response> {
         result = state.listings.page(grant.id, JSON.stringify([operation, data.input.projectId, data.input.archived]), data.input.cursor, data.input.limit, rows); break;
       }
       case 'read_session': result = await readSession(config, parsed.data.input.sessionId, parsed.data.input.archived); break;
-      case 'create_session': result = await createSession(parsed.data.input, config, authorize); break;
-      case 'archive_session': result = await archive(parsed.data.input, config, authorize); break;
-      case 'add_participant': result = await addParticipant(parsed.data.input, config, authorize); break;
-      case 'send_message': result = await sendMessage(parsed.data.input, config, authorize); break;
+      case 'create_session': {
+        const created = await createSession(parsed.data.input, config, access);
+        activity.sessionId = 'sessionId' in created ? created.sessionId : undefined;
+        if ('runId' in created) activity.runId = created.runId ?? undefined;
+        if ('participantId' in created) activity.participantId = created.participantId;
+        if ('creationState' in created) activity.outcome = created.creationState === 'retained' ? 'partial' : 'failed';
+        else if (created.state === 'first_message_not_accepted' || created.state === 'first_message_unknown') activity.outcome = 'partial';
+        else if (created.state === 'archived') activity.outcome = 'replayed';
+        result = created; break;
+      }
+      case 'archive_session': {
+        const archived = await archive(parsed.data.input, config, access);
+        if (archived.state === 'already_archived') activity.outcome = 'replayed';
+        result = archived; break;
+      }
+      case 'add_participant': {
+        const added = await addParticipant(parsed.data.input, config, access);
+        activity.participantId = added.participant.id;
+        result = added; break;
+      }
+      case 'send_message': {
+        const sent = await sendMessage(parsed.data.input, config, access);
+        activity.runId = sent.runId ?? undefined;
+        result = sent; break;
+      }
     }
     await authorize();
     return boundedResult(result);
-  } catch (error) { return bridgeError(error); }
-  finally { release?.(); }
+  } catch (error) {
+    const response = bridgeError(error);
+    if (activity) { activity.status = response.status; activity.outcome = rejectedOutcome(response.status); }
+    return response;
+  } finally {
+    try { if (activity) await recordActivity(config.dataDir, activity); }
+    finally { release?.(); }
+  }
 }
 export async function bridgeSubscription(request: Request): Promise<Response> {
   const config = getConfig();
+  let actor: ActivityActor | undefined;
+  let status = 200;
   try {
-    const grant = await authorizeIntegration(request, config, 'sessions:read');
+    const grant = await authorizeIntegration(request, config);
+    actor = grantActor(grant);
+    if (!grant.scopes.includes('sessions:read')) throw new McpError('forbidden', 'MCP grant requires sessions:read.', 403);
     const state = stateFor(config);
     if (request.signal.aborted) throw new McpError('cancelled', 'Subscription request was cancelled.', 400);
     if (state.subscriptions >= 8) throw new McpError('busy', 'Eight MCP subscriptions are already connected.', 429, true);
@@ -119,5 +170,12 @@ export async function bridgeSubscription(request: Request): Promise<Response> {
         return () => { closed = true; latest = undefined; release(); state.subscriptions--; };
       },
     });
-  } catch (error) { return bridgeError(error); }
+  } catch (error) {
+    const response = bridgeError(error);
+    status = response.status;
+    return response;
+  } finally {
+    if (actor) await recordActivity(config.dataDir, { actor, action: 'mcp.call', operation: 'subscribe',
+      outcome: status === 200 ? 'succeeded' : rejectedOutcome(status), status });
+  }
 }

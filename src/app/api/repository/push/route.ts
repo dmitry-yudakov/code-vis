@@ -3,6 +3,7 @@ import { getConfig } from '@/server/config';
 import { getCheckoutRegistry } from '@/server/repository/checkoutRegistry';
 import { pushCurrentBranch } from '@/server/repository/gitPush';
 import { authorizeDeviceRequest, requestHasExactOrigin } from '@/server/devices/deviceAuthorization';
+import { webActivityRecorder } from '@/server/devices/activityActor';
 import { boundedRequestBody } from '@/server/machines/boundedBody';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
 
@@ -26,8 +27,11 @@ export async function POST(request: Request): Promise<Response> {
   catch { return safeJsonResponse({ error: 'Push request is not valid JSON.' }, { status: 400 }); }
   if (!parsed.success) return safeJsonResponse({ error: 'Invalid push request.' }, { status: 400 });
   try {
+    const record = await webActivityRecorder(request, config.dataDir);
     const checkout = await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).resolve(parsed.data.checkoutId);
-    return safeJsonResponse({ target: await pushCurrentBranch(checkout.realPath, parsed.data.target) });
+    const target = await pushCurrentBranch(checkout.realPath, parsed.data.target);
+    await record({ action: 'git.push', checkoutId: checkout.id });
+    return safeJsonResponse({ target });
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: 409 });
   }

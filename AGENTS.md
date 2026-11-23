@@ -29,12 +29,18 @@ Prefer a concise, functional UI that makes the next action clear. Avoid walls of
 
 ## Now
 
-Updated 2026-11-21. When a story ships, change the line that names it; each story file keeps its own
+Updated 2026-11-23. When a story ships, change the line that names it; each story file keeps its own
 `Status:`, so nothing here duplicates it.
 
 - **Development queue:** [docs/development-queue.md](docs/development-queue.md) — ordered work for
   agent sessions, with stable item IDs, completion criteria, and source stories. Use it when asked
   for the next ready item.
+- **Shipped:** [Story 154](stories/STORY-20261123-activity-log.md) — **More → Activity log** shows
+  recent activity on the serving machine. It covers MCP grant calls and outcomes, session and
+  message acceptance, both automatic archive policies, and main project, run and Git actions.
+  The log stores metadata in two rotating 1 MiB segments. Focused tests, MCP SDK runtime journeys,
+  TypeScript, isolated build, six Chrome cases, both-theme desktop/phone screenshot inspection and
+  independent review passed. The running application still needs a rebuild.
 - **Shipped:** [Story 41 follow-up](stories/STORY-20260904-authenticated-devices.md) — personal-device
   pairing uses eight letters as `ABCD-EFGH`, with legacy-code compatibility and existing expiry,
   single-use and five-guess limits. All 29 focused unit checks, four production-browser journeys,
