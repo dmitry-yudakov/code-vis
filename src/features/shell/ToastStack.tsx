@@ -3,11 +3,13 @@
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { toastLifetime, type Toast, type ToastTone } from './toasts';
 
 /** How long a leaving toast takes to close its row; matches the `.toast-slot` transition. */
 const LEAVE_MS = 200;
+const SWIPE_START_PX = 8;
+const SWIPE_DISMISS_PX = 56;
 
 const GLYPHS: Record<ToastTone, ReactNode> = {
   success: <path d="m6 12.5 4 4 8-9" />,
@@ -85,26 +87,43 @@ function ToastCard({ toast, paused, onRemove }: {
   paused: boolean;
   onRemove(toast: Toast, dismissed: boolean): void;
 }) {
-  // Why it leaves: dismissed (× or its countdown) or an action chosen; while leaving it is inert.
+  // Keep dismissal and action selection distinct while the leaving card is inert.
   const [leaving, setLeaving] = useState<'dismissed' | 'chosen'>();
+  const swipe = useRef<{ pointerId: number; x: number; y: number }>(null);
+  const [swipeX, setSwipeX] = useState<number>();
+  const swiping = swipeX !== undefined && !leaving;
   const toastRef = useRef(toast);
   toastRef.current = toast;
   // What is left of the lifetime; it runs down only while the stack is not paused.
   const remaining = useRef(toastLifetime(toast));
   useEffect(() => {
-    if (paused || leaving || remaining.current === undefined) return;
+    if (paused || swiping || leaving || remaining.current === undefined) return;
     const started = Date.now();
     const timer = window.setTimeout(() => setLeaving('dismissed'), remaining.current);
     return () => {
       window.clearTimeout(timer);
       remaining.current! -= Date.now() - started;
     };
-  }, [leaving, paused]);
+  }, [leaving, paused, swiping]);
   useEffect(() => {
     if (!leaving) return;
     const timer = window.setTimeout(() => onRemove(toastRef.current, leaving === 'dismissed'), LEAVE_MS);
     return () => window.clearTimeout(timer);
   }, [leaving, onRemove]);
+
+  const finishSwipe = (event: ReactPointerEvent) => {
+    const start = swipe.current;
+    if (start?.pointerId !== event.pointerId) return;
+    swipe.current = null;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (event.type === 'pointerup' && Math.abs(dx) >= SWIPE_DISMISS_PX && Math.abs(dx) > Math.abs(dy)) {
+      setSwipeX(dx);
+      setLeaving('dismissed');
+    } else {
+      setSwipeX(undefined);
+    }
+  };
 
   return (
     <div className={leaving ? 'toast-slot leaving' : 'toast-slot'} inert={Boolean(leaving)}><div className="toast-clip">
@@ -114,8 +133,31 @@ function ToastCard({ toast, paused, onRemove }: {
         action={<IconButton type="button" className="toast-dismiss" aria-label="Dismiss notification" onClick={() => setLeaving('dismissed')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 7 7 17M7 7l10 10" /></svg></IconButton>}
         className="toast"
         data-tone={toast.tone}
+        data-swiping={swiping ? '' : undefined}
+        style={swipeX ? { translate: leaving ? `${Math.sign(swipeX) * 100}%` : `${swipeX}px` } : undefined}
         role={toast.tone === 'error' ? 'alert' : 'status'}
         onKeyDown={(event) => { if (event.key === 'Escape') setLeaving('dismissed'); }}
+        onPointerDown={(event) => {
+          if (event.pointerType !== 'touch' || !event.isPrimary) return;
+          swipe.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+          setSwipeX(0);
+        }}
+        onPointerMove={(event) => {
+          const start = swipe.current;
+          if (start?.pointerId !== event.pointerId) return;
+          const dx = event.clientX - start.x;
+          const dy = event.clientY - start.y;
+          if (Math.abs(dx) < SWIPE_START_PX || Math.abs(dx) <= Math.abs(dy)) {
+            setSwipeX(0);
+            return;
+          }
+          // Keep taps on their buttons. Once dragging, capture to the card so release cannot click an action.
+          if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
+          setSwipeX(dx);
+        }}
+        onPointerUp={finishSwipe}
+        onPointerCancel={finishSwipe}
+        onLostPointerCapture={(event) => { if (event.target === event.currentTarget) finishSwipe(event); }}
       >
         <div className="toast-body">
           <p>

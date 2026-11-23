@@ -1112,6 +1112,84 @@ test('stacks notices as toasts in the canvas corner and lets only what can wait 
   await expect(restored).toHaveCount(0);
 });
 
+test.describe('touch notifications', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test('swipes individual notifications away without activating their actions', async ({ page, request }) => {
+    const { checkouts } = await (await request.get('/api/checkouts')).json();
+    const { project } = await (await request.post('/api/projects', { data: {
+      name: `Touch notifications ${Date.now()}`,
+      checkoutIds: [checkouts.find((checkout: { name: string }) => checkout.name === 'alpha').id],
+    } })).json();
+    const { session } = await (await request.post('/api/sessions', { data: { projectId: project.id, provider: 'claude' } })).json();
+    await page.goto(`/?session=${session.id}`);
+    await ensureConversationOpen(page);
+    const conversation = page.getByRole('complementary', { name: 'Conversation' });
+    await page.route('**/api/agent/message', (route) => route.fulfill({ status: 409, json: {
+      error: 'Another turn is using this provider session.', activeRun: { runId: 'run-busy', sessionId: 'session-busy' },
+    } }), { times: 1 });
+    let cancellations = 0;
+    await page.route('**/api/agent/cancel', (route) => {
+      cancellations++;
+      return route.fulfill({ json: { ok: true } });
+    });
+    await conversation.locator('textarea').fill('Show a busy-run notification');
+    await conversation.getByRole('button', { name: 'Send' }).tap();
+    const busy = toast(page, 'Another turn is using this provider session.');
+    const cancel = busy.getByRole('button', { name: 'Cancel session session-' });
+    await expect(cancel).toBeVisible();
+
+    await page.route('**/api/sessions/*/sketches', (route) => route.fulfill({ status: 500, json: { error: 'Simulated sketch failure.' } }));
+    const failure = toast(page, 'Simulated sketch failure.');
+    async function raiseSketchFailure() {
+      await ensureConversationOpen(page);
+      await conversation.getByRole('button', { name: 'Attach', exact: true }).tap();
+      await page.getByRole('menuitem', { name: 'New sketch', exact: true }).tap();
+      await expect(failure).toBeVisible();
+    }
+    await raiseSketchFailure();
+    await failure.getByRole('button', { name: 'Dismiss notification' }).tap();
+    await expect(failure).toHaveCount(0);
+    await raiseSketchFailure();
+    await failure.evaluate((element) => Promise.all(element.closest('.toast-slot')!.getAnimations().map((animation) => animation.finished)));
+
+    const cdp = await page.context().newCDPSession(page);
+    async function dragFrom(target: Locator, dx: number, dy = 0) {
+      const box = (await target.boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (const fraction of [0.25, 0.5, 0.75, 1]) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + fraction * dx, y: y + fraction * dy }] });
+      }
+    }
+    const release = () => cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+    await dragFrom(failure, 0, 80);
+    await release();
+    await dragFrom(cancel, 24);
+    await release();
+    await expect(busy).toHaveCSS('translate', 'none');
+
+    await dragFrom(failure, -100);
+    await expect(failure).toHaveCSS('translate', '-100px');
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await expect(failure).toHaveCSS('translate', 'none');
+
+    await dragFrom(cancel, 100);
+    await expect(busy).toHaveCSS('translate', '100px');
+    await release();
+    await expect(busy).toHaveCount(0);
+    await expect(failure).toBeVisible();
+    expect(cancellations).toBe(0);
+
+    await dragFrom(failure, -100);
+    await release();
+    await expect(failure).toHaveCount(0);
+    await cdp.detach();
+  });
+});
+
 /** A project of its own, bound to the alpha fixture, which the shell opens first as the newest. */
 async function openAlphaProject(page: Page, request: APIRequestContext, name: string) {
   const { checkouts } = await (await request.get('/api/checkouts')).json() as { checkouts: Array<{ id: string; name: string }> };

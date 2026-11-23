@@ -570,7 +570,10 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .dock-capacity-0 .toast-region { z-index: 70; }
 /* The header's menus stay above both: its own box ends above the overlays. */
 .dock-capacity-0 .app-header { z-index: 75; }
-.toast { pointer-events: auto; }
+.toast { pointer-events: auto; touch-action: pan-y pinch-zoom; transition: translate .2s ease-out; }
+/* Apply the gesture policy to touch targets inside the card, including buttons. */
+.toast * { touch-action: inherit; }
+.toast[data-swiping] { transition: none; }
 .toast-region.in-workspace { --toast-right: calc(var(--conversation-column-width, 0px) + 16px); }
 /* The spatial room keeps its controls in a 252px column at the canvas's right edge. */
 .toast-region.beside-spatial { --toast-right: calc(var(--conversation-column-width, 0px) + 268px); }

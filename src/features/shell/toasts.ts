@@ -16,7 +16,7 @@ export interface ToastInput {
   actions?: ToastAction[];
   /** Stays until dismissed, whatever its tone. */
   persistent?: boolean;
-  /** Runs when the toast leaves by its × or its countdown, not when a new raise replaces it. */
+  /** Runs when the user dismisses the toast or its lifetime ends. */
   onDismiss?(): void;
 }
 
