@@ -232,6 +232,8 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tiles .arena-group > header > div:first-child { flex: 1; }
 .arena-tiles .arena-project-handle.MuiIconButton-root { margin-right: -8px; }
 .arena-tiles .arena-card-grid { flex: 1; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; align-items: stretch; }
+.arena-tiles .arena-project-grid:has(.arena-tile-message.expanded),
+.arena-tiles .arena-card-grid:has(.arena-tile-message.expanded) { align-items: start; }
 .arena-tiles .arena-card { grid-template-rows: auto 1fr; align-items: stretch; overflow: hidden; border-radius: 12px; }
 .arena-tiles .arena-card-open { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 16px 12px; }
 .arena-tiles .arena-card-open > strong { min-width: 0; padding-right: 32px; line-height: 1.5; }
@@ -245,8 +247,11 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tile-body { grid-column: 1 / -1; min-width: 0; padding: 0 16px 8px; display: flex; flex-direction: column; gap: 8px; }
 .arena-tile-caption { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .arena-tile-preview { min-width: 0; padding-top: 12px; border-top: 1px solid var(--line); }
-.arena-tile-preview p { margin: 8px 0 0; min-height: 126px; color: var(--ink-2); font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
-.arena-tile-preview p.expanded { display: block; max-height: 280px; overflow: auto; }
+.arena-tile-message { margin-top: 8px; color: var(--ink-2); font-size: 13px; line-height: 1.65; }
+.arena-tile-message:not(.expanded) { height: 6lh; overflow: clip; }
+.arena-tile-message.clipped { mask-image: linear-gradient(to bottom, #000 calc(100% - 1lh), transparent); }
+.arena-tile-message .assistant-blocks { display: flow-root; font-size: inherit; line-height: inherit; }
+.arena-tile-message .arena-tile-plain { margin: 0; white-space: pre-wrap; }
 .arena-tile-preview > .MuiButton-root { margin-top: 4px; padding-left: 0; }
 .arena-tile-reply { min-width: 0; display: grid; gap: 10px; margin-top: auto; margin-inline: -8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .arena-tile-reply-field .MuiInputBase-root { align-items: center; min-height: 32px; padding: 0; }

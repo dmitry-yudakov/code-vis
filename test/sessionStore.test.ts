@@ -346,6 +346,8 @@ describe('host-owned session store', () => {
     expect(summary.lastMessage!.text).toContain('A useful result.');
     expect(JSON.stringify(summary)).not.toContain('private code');
     expect(JSON.stringify(summary)).not.toContain('flowchart');
+    latest.blocks[0] = { kind: 'markdown', markdown: 'Short introduction.' };
+    expect(arenaSessionSummary(session).lastMessage).toMatchObject({ truncated: true });
     session.messages.pop();
     expect(arenaSessionSummary(session).lastMessage).toEqual({ author: 'You', role: 'user', text: 'Map it.', truncated: false });
     session.messages = [];

@@ -329,7 +329,7 @@ export function Arena({
                               onClick={() => archive(machine.machine.id, card.session)}>
                               <ShellIcon name="archive" />
                             </IconButton>
-                            {tiles && <ArenaTileBody machine={machine} card={card} replies={replies} replyOptions={replyOptions} onDecidePermission={onDecidePermission} />}
+                            {tiles && <ArenaTileBody machine={machine} localMachineId={localMachine?.machine.id} card={card} replies={replies} replyOptions={replyOptions} onDecidePermission={onDecidePermission} />}
                           </Paper>
                         );
                       })}

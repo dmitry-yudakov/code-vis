@@ -469,7 +469,9 @@ else {
         : prompt.includes('Mode: PLAN')
           ? 'I reviewed the module.\n\n<!-- cartograph:plan:start -->\n## Implementation plan\n1. Extract the parser into its own module.\n2. Verify with `npm test`.\n<!-- cartograph:plan:end -->'
           : args.includes('--resume') ? 'I remember the prior turn without a transcript replay.' : 'First turn complete.';
-  if (asked('/model\nSoftware-model fixture')) {
+  if (asked('Arena full Markdown fixture')) {
+    text = `## Review summary\n\nThe **parser** is ready.\n\n${'Here is a longer paragraph of review detail. '.repeat(20)}\n\n- Final verification passed.\n\n\`\`\`ts\nconst reviewed = true;\n\`\`\``;
+  } else if (asked('/model\nSoftware-model fixture')) {
     text = `These are LLM suggestions.\n\n\`\`\`codeai-model\n${JSON.stringify({
       schema: 'codeai.software-model.v1',
       entities: [{ key: 'package', kind: 'file', name: 'package.json', location: { filename: 'package.json', startLine: 1 }, confidence: 0.8, description: 'Declares this package.' }],

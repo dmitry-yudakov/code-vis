@@ -13,15 +13,16 @@ import type { ArenaSessionCard } from './arenaModel';
 import type { ArenaReplyOptions, useArenaReplies } from './useArenaReplies';
 import { chatCommand } from '@/features/conversation/chatCommands';
 import { useChatCommandInput } from '@/features/conversation/ChatCommandInput';
+import { ArenaMessagePreview } from './ArenaMessagePreview';
 
-export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePermission }: {
+export function ArenaTileBody({ machine, localMachineId, card, replies, replyOptions, onDecidePermission }: {
   machine: ArenaMachineSnapshot;
+  localMachineId?: string;
   card: ArenaSessionCard;
   replies: ReturnType<typeof useArenaReplies>;
   replyOptions(machine: ArenaMachineSnapshot, session: ArenaSessionCard['session']): ArenaReplyOptions;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [deciding, setDeciding] = useState<string>();
   const [permissionError, setPermissionError] = useState<string>();
   const { session, run } = card;
@@ -35,7 +36,6 @@ export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePe
   const locked = disabled || frozen;
   const command = !frozen ? chatCommand(draft.text) : undefined;
   const commandInput = useChatCommandInput(draft.text, text => replies.edit(machine.machine.id, session.id, { text }), !locked, { placement: 'top-start' });
-  const message = session.lastMessage;
   const missingImages = (draft.delivery?.imageCount || 0) > (draft.images?.length || 0);
   const sendLabel = draft.busy ? 'Sending…' : frozen ? missingImages ? 'Check delivery' : 'Check / retry' : command ? 'Run command' : 'Send';
   const canSend = !draft.busy && !draft.preparing && Boolean(draft.text.trim() || draft.images?.length || draft.delivery) && (frozen
@@ -44,11 +44,7 @@ export function ArenaTileBody({ machine, card, replies, replyOptions, onDecidePe
   const send = () => { if (canSend) { commandInput.dismiss(); void replies.send(machine, session, options); } };
   return (
     <div className="arena-tile-body">
-      <div className="arena-tile-preview">
-        <span className="arena-tile-caption">{message ? `Latest message · ${message.author}` : session.lastActivity ? 'Preview unavailable' : 'No messages yet'}</span>
-        <p className={expanded ? 'expanded' : ''}>{message?.text || (message ? 'This message contains code or canvas content. Open the session to view it.' : session.lastActivity ? 'Open the session to read its latest message.' : 'Send an instruction to start this session.')}{message?.truncated ? '…' : ''}</p>
-        {message && (message.text.length > 180 || message.text.split('\n').length > 6) && <Button type="button" variant="text" color="inherit" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Show less' : 'Show more'}</Button>}
-      </div>
+      <ArenaMessagePreview key={session.lastActivity?.messageId} session={session} machine={machine.machine} localMachineId={localMachineId} />
       {run?.pendingPermissions.map(permission => <div className="arena-tile-permission" key={permission.requestId}>
         <strong>{permission.tool}</strong><pre>{permission.detail}</pre>
         <div>{(['deny', 'allow'] as const).map(decision => <Button type="button" key={decision} disabled={!fresh || Boolean(deciding)}

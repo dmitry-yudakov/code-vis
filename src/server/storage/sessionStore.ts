@@ -256,7 +256,8 @@ export function arenaSessionSummary(session: DurableSession): ArenaSessionSummar
       author: latest.role === 'user' ? 'You' : session.participants.find(participant => participant.id === latest.authorId)?.displayName || 'Agent',
       role: latest.role,
       text: (preview || '').slice(0, MAX_ARENA_PREVIEW_CHARS),
-      truncated: (preview?.length || 0) > MAX_ARENA_PREVIEW_CHARS,
+      truncated: (preview?.length || 0) > MAX_ARENA_PREVIEW_CHARS
+        || latest.role === 'assistant' && latest.blocks.some(block => block.kind !== 'markdown'),
     } } : {}),
     updatedAt: session.updatedAt,
     ...(latest ? {

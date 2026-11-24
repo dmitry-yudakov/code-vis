@@ -20,8 +20,10 @@ Active projects and cards keep those positions until page reload, as described i
   Optional schema fields allow older executor summaries; those tiles offer Open for replying.
 - Existing compact summary caching and workspace subscriptions carry excerpts after committed
   messages, including completed background replies. Token deltas do not rebuild Arena, and the
-  tile view never fetches all conversation histories. Full-session reads happen only for Send or
-  delivery recovery against the captured machine/session.
+  tile view never fetches all conversation histories. **Show more** loads a clipped message or
+  omitted fenced block through the existing single-message read on its owning machine. Arena
+  renders assistant text as Markdown and displays fenced blocks as source. Full-session reads
+  happen only for Send or delivery recovery against the captured machine/session.
 - Quick replies address the main agent, follow the session's supported mode and reuse its remembered
   model/effort. Agent/mode changes happen inside the conversation, without a repeated footer caption. Existing
   Native Accept edits/Full access modes are retained where supported. Enter sends, Shift+Enter adds
@@ -51,7 +53,7 @@ Active projects and cards keep those positions until page reload, as described i
 ## Acceptance
 
 - [x] Switch desktop arrangements, remember the choice, and retain grouping and narrow layouts.
-- [x] Expand bounded latest-message excerpts and see saved background replies without navigation.
+- [x] Read the complete latest response as Markdown and see saved background replies without navigation.
 - [x] Send to two sessions, keep independent drafts, and route duplicate IDs to their own machine.
 - [x] Preserve text and frozen delivery across reload, including failed delivery, the same retry
       UUID/recipient, provider unavailability and a changed main agent.

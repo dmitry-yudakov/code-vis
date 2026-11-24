@@ -435,6 +435,8 @@ test('two tiles send real background replies without navigation and receive save
   await expect(second.getByRole('textbox')).toHaveValue('Keep a separate reply');
   await expect(first.locator('.arena-tile-preview')).toContainText('Here is one architecture map.');
   await expect(first.locator('.arena-tile-preview')).not.toContainText('flowchart');
+  await first.getByRole('button', { name: 'Show more', exact: true }).click();
+  await expect(first.locator('.arena-tile-preview pre')).toContainText('flowchart');
   await second.getByRole('textbox').press('Enter');
   await expect(second.locator('.arena-tile-preview')).toContainText('First turn complete.');
   await expect(page).toHaveURL(/\/arena$/);
@@ -443,6 +445,45 @@ test('two tiles send real background replies without navigation and receive save
     const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
     expect(saved.messages.filter(message => message.role === 'user')).toHaveLength(1);
   }
+});
+
+test('Show more lazily reads the complete saved Markdown response and keeps the tile reply', async ({ page, request }, testInfo) => {
+  const { created: [session, neighbor] } = await sessions(request, 2);
+  const messageReads: string[] = [];
+  await page.route(`**/api/sessions/${session.id}?view=message&messageId=*`, async route => {
+    messageReads.push(new URL(route.request().url()).searchParams.get('messageId')!);
+    if (messageReads.length === 1) return route.fulfill({ status: 503, json: { error: 'Temporarily unavailable' } });
+    return route.continue();
+  });
+  await openTiles(page);
+  const card = cardFor(page, session.id), preview = card.locator('.arena-tile-preview');
+  const reply = card.getByRole('textbox');
+  await reply.fill('Arena full Markdown fixture');
+  await reply.press('Enter');
+  await expect(preview.getByRole('heading', { name: 'Review summary' })).toBeVisible();
+  await expect(preview.locator('strong')).toHaveText('parser');
+  await expect(preview.getByText('Final verification passed.')).toHaveCount(0);
+  expect(messageReads).toHaveLength(0);
+  const saved = (await (await request.get(`/api/sessions/${session.id}`)).json()).session as PublicSession;
+  const neighborCard = cardFor(page, neighbor.id);
+  const neighborHeight = (await neighborCard.boundingBox())!.height;
+  await reply.fill('Keep this draft while reading');
+  await preview.getByRole('button', { name: 'Show more', exact: true }).click();
+  await expect(preview.getByRole('alert')).toContainText('Could not load the full message');
+  await expect(preview.getByRole('heading', { name: 'Review summary' })).toBeVisible();
+  await preview.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(preview.getByRole('listitem')).toHaveText('Final verification passed.');
+  await expect(preview.locator('pre code')).toContainText('const reviewed = true;');
+  expect(messageReads).toEqual([saved.messages.at(-1)!.id, saved.messages.at(-1)!.id]);
+  await expect(reply).toHaveValue('Keep this draft while reading');
+  expect((await neighborCard.boundingBox())!.height).toBeLessThanOrEqual(neighborHeight);
+  await page.screenshot({ path: testInfo.outputPath('arena-expanded-markdown.png') });
+  await preview.getByRole('button', { name: 'Show less', exact: true }).click();
+  await expect(preview.getByText('Final verification passed.')).toHaveCount(0);
+  await preview.getByRole('button', { name: 'Show more', exact: true }).click();
+  await expect(preview.getByRole('listitem')).toHaveText('Final verification passed.');
+  expect(messageReads).toHaveLength(2);
+  await expect(page).toHaveURL(/\/arena$/);
 });
 
 test('failed delivery keeps the draft; uncertain retry keeps the same message UUID', async ({ page, request }) => {
@@ -491,10 +532,16 @@ test('tiles route duplicate session ids to their own machine and block offline r
   local.sessions = local.sessions.filter(item => item.id === session.id);
   const remote = structuredClone(local);
   remote.machine = { ...remote.machine, id: crypto.randomUUID(), kind: 'remote', label: 'Tile executor' };
+  const responseId = crypto.randomUUID();
+  remote.sessions[0].lastActivity = { messageId: responseId, createdAt: new Date().toISOString(), status: 'complete' };
+  remote.sessions[0].lastMessage = { author: 'Claude', role: 'assistant', text: 'Remote preview', truncated: true };
   snapshot.machines.push(remote);
   await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
   const targets: string[] = [];
   await page.route(`**/api/machines/${remote.machine.id}/sessions/${session.id}`, route => route.fulfill({ json: { session } }));
+  await page.route(`**/api/machines/${remote.machine.id}/sessions/${session.id}?view=message&messageId=${responseId}`, route => route.fulfill({ json: {
+    revision: session.revision, message: { id: responseId, role: 'assistant', rawMarkdown: '## Full remote response' },
+  } }));
   await page.route(`**/api/machines/${remote.machine.id}/agent/message`, route => {
     targets.push(route.request().url());
     return route.fulfill({ headers: { 'X-CodeAI-Run-Id': crypto.randomUUID() }, body: '' });
@@ -503,6 +550,9 @@ test('tiles route duplicate session ids to their own machine and block offline r
   await page.getByRole('button', { name: 'Tiles', exact: true }).click();
   const homeCard = page.getByRole('region', { name: local.machine.label, exact: true }).locator('.arena-card');
   const remoteCard = page.getByRole('region', { name: 'Tile executor', exact: true }).locator('.arena-card');
+  await remoteCard.getByRole('button', { name: 'Show more', exact: true }).click();
+  await expect(remoteCard.getByRole('heading', { name: 'Full remote response' })).toBeVisible();
+  await expect(homeCard.getByRole('heading', { name: 'Full remote response' })).toHaveCount(0);
   await homeCard.getByRole('textbox').fill('Home draft');
   await remoteCard.getByRole('textbox').fill('Remote reply');
   remote.providers.claude.available = false; await pushArenaSnapshot(page);
