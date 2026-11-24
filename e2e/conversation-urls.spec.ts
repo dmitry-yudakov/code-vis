@@ -336,6 +336,64 @@ test('an externally archived tab preserves its URL and reopens that conversation
   await expect(composer(page)).toHaveValue('Keep this draft through external archive');
 });
 
+test('Retry loads an active conversation while its disconnected turn is waiting to reconnect', async ({ page, context, request }) => {
+  const { session } = await fixture(request);
+  const otherProject = await fixture(request);
+  await page.goto(href(session));
+  await expectSession(page, session);
+  await composer(page).fill('Keep this draft through reconnect');
+
+  const other = await context.newPage();
+  await other.goto(href(session));
+  await expectSession(other, session);
+  await other.getByLabel(/^Mode: /).click();
+  await other.getByRole('radio', { name: 'Agent', exact: true }).click();
+  await composer(other).fill('Run that stays active during retry');
+  let sends = 0;
+  context.on('request', outgoing => {
+    if (new URL(outgoing.url()).pathname === '/api/agent/message' && outgoing.method() === 'POST') sends++;
+  });
+  await page.route('**/api/agent/stream?runId=*', route => route.abort(), { times: 1 });
+  await other.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(other.getByRole('button', { name: 'Deny', exact: true })).toBeVisible();
+
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
+
+  let releaseDiscovery!: () => void;
+  const discovery = new Promise<void>(resolve => { releaseDiscovery = resolve; });
+  await page.route(/\/api\/agent\/runs(?:\?.*)?$/, async route => {
+    await discovery;
+    await route.continue().catch(() => {});
+  });
+  try {
+    await page.evaluate(url => history.pushState(null, '', url), href(otherProject.session));
+    await expectSession(page, otherProject.session);
+    await page.getByRole('link', { name: 'CodeAI Arena', exact: true }).click();
+    await page.route(`**/api/sessions/${session.id}?view=recent`, route => route.fulfill({ status: 404, json: { error: 'Unknown session' } }), { times: 1 });
+    await page.getByRole('link', { name: 'Open Run that stays active during retry', exact: true }).click();
+
+    const unavailable = page.getByRole('region', { name: 'Workspace unavailable', exact: true });
+    await expect(unavailable).toBeVisible();
+    await page.evaluate(() => document.querySelector('.app-shell')!.setAttribute('data-persistent-shell', 'yes'));
+    const retryRead = page.waitForResponse(response => new URL(response.url()).pathname === `/api/sessions/${session.id}` && response.ok());
+    await unavailable.getByRole('button', { name: 'Retry', exact: true }).click();
+    await retryRead;
+    await expectSession(page, session);
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-persistent-shell', 'yes');
+    await expect(page.locator('.chat-message.user')).toContainText('Run that stays active during retry');
+    await expect(composer(page)).toHaveValue('Keep this draft through reconnect');
+
+    releaseDiscovery();
+    await page.getByRole('button', { name: 'Deny', exact: true }).click();
+    await expect(page.locator('.chat-message.assistant.complete')).toContainText('Edit denied');
+    await expect(page.locator('.chat-message.user')).toHaveCount(1);
+    expect(sends).toBe(1);
+  } finally {
+    releaseDiscovery();
+  }
+});
+
 test('activation fetches current messages without replacing the unsent draft, and failure can retry', async ({ page, request }) => {
   const { session } = await fixture(request);
   await page.goto(href(session));

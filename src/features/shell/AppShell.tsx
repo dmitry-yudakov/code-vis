@@ -881,10 +881,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       }
       if (saved) {
         workspace.openInProject(targetProjectId, saved.id, undefined, targetMachineId === localMachineId ? undefined : targetMachineId);
-        // The selected conversation is usable before its project catalog finishes.
-        if ((!sameScope || !runsBySessionRef.current[saved.id] && !sendingSessions.current.has(saved.id)
-          && !reconnectingRuns.current.has(saved.id) && !acceptanceChecks.current.has(saved.id)
-          && sessionsRef.current.find(item => item.id === saved.id) === prior) && saved.revision >= (prior?.revision || 0)) {
+        const loaded = sessionsRef.current.find(item => item.id === saved.id);
+        const busy = runsBySessionRef.current[saved.id] || sendingSessions.current.has(saved.id)
+          || reconnectingRuns.current.has(saved.id) || acceptanceChecks.current.has(saved.id);
+        // A send or reconnect protects an existing snapshot. An empty workspace still needs its saved messages.
+        if ((!loaded || !busy && loaded === prior) && saved.revision >= (prior?.revision || 0)) {
           applyServerSnapshot(saved, targetMachineId, history);
           setLoading(false);
           void recoverRuns.current(saved.id, undefined, true);
@@ -3038,7 +3039,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const openingWorkspace = loading || (!arenaOpen && resolvedNavigation !== navigationKey && !selectedDestinationLoaded);
   const navigationError = !arenaOpen && (navigationFailure?.key === navigationKey ? navigationFailure.message
     : !openingWorkspace && location.kind === 'session' && !sessions.some(item => item.id === location.sessionId)
-      ? 'This conversation is unavailable. It may have been archived or deleted.' : undefined);
+      ? 'Could not load this conversation.' : undefined);
   useEffect(() => {
     if (arenaOpen || openingWorkspace || resolvedNavigation !== navigationKey || navigationError || !panelLayout.conversationShown || !session || !machineId
       || (location.kind === 'session' && !selectedDestinationLoaded)) return;
