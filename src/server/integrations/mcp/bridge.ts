@@ -4,18 +4,20 @@ import { boundedRequestBody } from '@/server/machines/boundedBody';
 import { workspaceFeeds } from '@/server/workspace/workspaceFeed';
 import { snapshotStream } from '@/server/workspace/snapshotStream';
 import { safeJsonResponse } from '@/shared/protocol';
-import { MCP_REQUEST_BYTES, MCP_RESPONSE_BYTES, mcpBridgeRequestSchema, mcpToolScopes, type McpBridgeRequest } from '@/shared/mcp';
+import { MCP_REQUEST_BYTES, MCP_RESPONSE_BYTES, mcpBridgeRequestSchema, mcpToolAllowed, type McpBridgeRequest } from '@/shared/mcp';
 import type { ActivityActor, McpActivity } from '@/shared/activityLog';
 import { recordActivity } from '@/server/storage/activityLog';
 import { sessionStoreStatus } from '@/server/storage/sessionStore';
-import { authorizeIntegration, grantExists, McpError, type McpGrant } from './grants';
+import { authorizeIntegration, digest, grantExists, McpError, type McpGrant } from './grants';
 import { currentSnapshot, executionChoices, McpListings, projectRows, readSession, sessionRow, workspaceHeader } from './reads';
 import { addParticipant, archive, createSession, sendMessage } from './actions';
+import { queueProject, queueReviewUrl, releaseQueueReview, scopedQueueRequest } from './queueApproval';
 
 class BridgeState {
   readonly listings: McpListings;
   constructor(config: AppConfig) { this.listings = new McpListings(id => grantExists(config, id)); }
   readonly operations = new Map<string, number>();
+  readonly scopedLaunches = new Map<string, ReturnType<typeof createSession>>();
   subscriptions = 0;
 }
 const scope = globalThis as typeof globalThis & { __codeaiMcpBridges?: Map<string, BridgeState> };
@@ -68,12 +70,17 @@ export async function bridgeOperation(request: Request): Promise<Response> {
     if (!parsed.success) throw new McpError('invalid', 'Invalid MCP operation or arguments.', 400);
     const { operation } = parsed.data;
     Object.assign(activity, operationTargets(parsed.data.input), { operation });
-    const required = operation === 'release_listing' ? undefined : mcpToolScopes[operation];
-    const authorize = async () => { await authorizeIntegration(request, config, required); };
+    const checkScope = (current: McpGrant) => {
+      if (current.queueProjectId !== grant.queueProjectId || (
+        operation !== 'get_capabilities' && operation !== 'release_listing' && !mcpToolAllowed(operation, current.scopes)
+      )) throw new McpError('forbidden', 'This MCP operation is outside the grant scope.', 403);
+    };
+    const authorize = async () => checkScope(await authorizeIntegration(request, config));
     const access = { authorize, actor: activity.actor };
-    await authorize();
+    checkScope(grant);
     let result: unknown;
     switch (operation) {
+      case 'get_capabilities': result = { scopes: grant.scopes }; break;
       case 'release_listing': state.listings.release(grant.id, parsed.data.input.cursor); result = { released: true }; break;
       case 'get_workspace': {
         const snapshot = await currentSnapshot(config);
@@ -82,8 +89,9 @@ export async function bridgeOperation(request: Request): Promise<Response> {
       case 'list_projects': {
         await state.listings.prune();
         const data = parsed.data.input as Extract<typeof parsed.data, { operation: 'list_projects' }>['input'];
-        result = state.listings.page(grant.id, operation, data.cursor, data.limit,
-          data.cursor ? undefined : projectRows(await currentSnapshot(config, true))); break;
+        const rows = data.cursor ? undefined : grant.queueProjectId
+          ? [await queueProject(config, grant)] : projectRows(await currentSnapshot(config, true));
+        result = state.listings.page(grant.id, operation, data.cursor, data.limit, rows); break;
       }
       case 'list_sessions': {
         await state.listings.prune();
@@ -95,7 +103,29 @@ export async function bridgeOperation(request: Request): Promise<Response> {
       }
       case 'read_session': result = await readSession(config, parsed.data.input.sessionId, parsed.data.input.archived); break;
       case 'create_session': {
-        const created = await createSession(parsed.data.input, config, access);
+        const input = parsed.data.input;
+        const scoped = grant.queueProjectId ? scopedQueueRequest(config, grant, input) : undefined;
+        if (scoped) {
+          const confirmationUrl = await queueReviewUrl(config, grant, scoped, authorize);
+          if (confirmationUrl) {
+            activity.outcome = 'partial';
+            result = { accepted: false, state: 'confirmation_required', confirmationUrl, creationRequestId: input.creationRequestId };
+            break;
+          }
+        }
+        let launch: ReturnType<typeof createSession>;
+        if (scoped) {
+          // Overlapping retries must share the result even before the canonical message is saved.
+          const key = digest([grant.id, scoped]);
+          const existing = state.scopedLaunches.get(key);
+          launch = existing ?? createSession(scoped, config, access, grant.id).finally(() => state.scopedLaunches.delete(key));
+          if (!existing) state.scopedLaunches.set(key, launch);
+        } else launch = createSession(input, config, access);
+        const created = await launch;
+        if (grant.queueProjectId && 'sessionId' in created && created.sessionId) {
+          // The canonical creation receipt now authorizes exact retries, including retained partial launches.
+          await releaseQueueReview(config, grant.id, input.creationRequestId).catch(() => undefined);
+        }
         activity.sessionId = 'sessionId' in created ? created.sessionId : undefined;
         if ('runId' in created) activity.runId = created.runId ?? undefined;
         if ('participantId' in created) activity.participantId = created.participantId;

@@ -45,7 +45,7 @@ import type {
 
 export async function submitMessage(
   request: Request, recovery?: SuspendedTurn, laterQueuedSessions: ReadonlySet<string> = new Set(),
-  integration?: { fingerprint: string; authorize(): Promise<void>; actor: ActivityActor },
+  integration?: { fingerprint: string; authorize(): Promise<void>; actor: ActivityActor; validateSession?(session: Readonly<DurableSession>): void },
 ): Promise<Response> {
   const contentLength = Number(request.headers.get('content-length') || 0);
   if (contentLength > 6_000_000) return safeJsonResponse({ error: 'Request body is too large.' }, { status: 413 });
@@ -83,6 +83,7 @@ export async function submitMessage(
   let session: DurableSession;
   try {
     session = await store.getSession(data.sessionId);
+    integration?.validateSession?.(session);
   } catch (error) {
     return safeJsonResponse({ error: publicError(error) }, { status: sessionStoreStatus(error) });
   }
@@ -362,7 +363,8 @@ export async function submitMessage(
     if (recovery) {
       session = await store.resumeSuspendedMessage(session.id, data.messageId, runId);
     } else {
-      const accepted = await store.appendUserMessage(session.id, userMessage, async () => {
+      const accepted = await store.appendUserMessage(session.id, userMessage, async current => {
+        integration?.validateSession?.(current);
         await integration?.authorize();
         try { await promoteReportEvidence(config.dataDir, session.id, reportEvidence); }
         catch (error) { promotionFailed = true; throw error; }

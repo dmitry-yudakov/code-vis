@@ -45,6 +45,7 @@ export const activityLabels = {
 
 export const mcpActivityLabels = {
   get_workspace: 'Read workspace',
+  get_capabilities: 'Read grant capabilities',
   list_projects: 'List projects',
   list_sessions: 'List sessions',
   read_session: 'Read session',
@@ -55,7 +56,7 @@ export const mcpActivityLabels = {
   release_listing: 'Release listing',
   subscribe: 'Subscribe to workspace',
   request: 'MCP request',
-} satisfies Record<McpTool | 'release_listing' | 'subscribe' | 'request', string>;
+} satisfies Record<McpTool | 'get_capabilities' | 'release_listing' | 'subscribe' | 'request', string>;
 
 const uuid = z.string().uuid();
 const context = {

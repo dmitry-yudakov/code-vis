@@ -6,11 +6,14 @@ import type { AppConfig } from '@/server/config';
 import { atomicWrite } from '@/server/storage/atomicWrite';
 import { getSessionStore, readStoredMachineIdentity } from '@/server/storage/sessionStore';
 import { requestHasSecureTransport } from '@/server/devices/deviceAuthorization';
-import { mcpScopeSchema, type McpConnection, type McpScope } from '@/shared/mcp';
+import { MCP_QUEUE_SCOPE, mcpScopeSchema, type McpConnection, type McpScope } from '@/shared/mcp';
 
 const grantSchema = z.object({ id: z.string().uuid(), name: z.string().trim().min(1).max(64),
   machineId: z.string().uuid(), origin: z.string().url(), digest: z.string().regex(/^[0-9a-f]{64}$/),
-  scopes: z.array(mcpScopeSchema), createdAt: z.string().datetime() }).strict();
+  scopes: z.array(mcpScopeSchema), createdAt: z.string().datetime(), queueProjectId: z.string().uuid().optional(),
+}).strict().refine(grant => grant.queueProjectId
+  ? grant.scopes.length === 2 && grant.scopes.includes('projects:read') && grant.scopes.includes(MCP_QUEUE_SCOPE)
+  : !grant.scopes.includes(MCP_QUEUE_SCOPE));
 export type McpGrant = z.infer<typeof grantSchema>;
 export class McpError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400, readonly retryable = false) { super(message); }
@@ -27,7 +30,10 @@ export function integrationOrigin(config: AppConfig): string {
   }
   return origin;
 }
-export async function provisionGrant(config: AppConfig, name: string, scopes: McpScope[] = []) {
+export async function provisionGrant(config: AppConfig, name: string, scopes: McpScope[] = [], queueProjectId?: string) {
+  if (scopes.includes(MCP_QUEUE_SCOPE) || (queueProjectId !== undefined && (
+    scopes.length || config.remoteAccess !== 'paired' || !z.string().uuid().safeParse(queueProjectId).success
+  ))) throw new McpError('setup', 'Use --queue-project PROJECT_UUID by itself on a paired installation.');
   // Connection credentials must never be written into a checkout.
   const dataRoot = await realpath(config.dataDir);
   const roots = await Promise.all([config.repositoriesRoot, config.worktreesRoot].filter(Boolean).map(async root => realpath(root).catch(() => path.resolve(root))));
@@ -44,7 +50,8 @@ export async function provisionGrant(config: AppConfig, name: string, scopes: Mc
   const credential = randomBytes(32).toString('base64url');
   const machine = await readStoredMachineIdentity(config.dataDir);
   if (!machine) throw new McpError('setup', 'Start CodeAI once before provisioning an MCP connection.');
-  const grant = grantSchema.parse({ id: randomUUID(), name, scopes: [...new Set<McpScope>(['projects:read', 'sessions:read', ...scopes])],
+  const grant = grantSchema.parse({ id: randomUUID(), name, queueProjectId,
+    scopes: queueProjectId ? ['projects:read', MCP_QUEUE_SCOPE] : [...new Set<McpScope>(['projects:read', 'sessions:read', ...scopes])],
     origin: integrationOrigin(config), machineId: machine.id,
     digest: digest(credential), createdAt: new Date().toISOString() });
   await atomicWrite(path.join(root, `${grant.id}.grant.json`), grant);
@@ -61,9 +68,14 @@ export async function revokeGrant(config: AppConfig, id: string) {
   if (!z.string().uuid().safeParse(id).success) throw new McpError('invalid', 'A grant UUID is required.');
   await unlink(path.join(directory(config), `${id}.grant.json`));
   await unlink(path.join(directory(config), `${id}.connection.json`)).catch((e: NodeJS.ErrnoException) => { if (e.code !== 'ENOENT') throw e; });
+  await unlink(path.join(directory(config), `${id}.queue.json`)).catch((e: NodeJS.ErrnoException) => { if (e.code !== 'ENOENT') throw e; });
+}
+export function readGrant(config: AppConfig, id: string): Promise<McpGrant> {
+  return readFile(path.join(directory(config), `${z.string().uuid().parse(id)}.grant.json`), 'utf8')
+    .then(raw => grantSchema.parse(JSON.parse(raw)));
 }
 export async function grantExists(config: AppConfig, id: string): Promise<boolean> {
-  try { grantSchema.parse(JSON.parse(await readFile(path.join(directory(config), `${id}.grant.json`), 'utf8'))); return true; }
+  try { await readGrant(config, id); return true; }
   catch { return false; }
 }
 export async function authorizeIntegration(request: Request, config: AppConfig, scope?: McpScope): Promise<McpGrant> {
@@ -73,7 +85,7 @@ export async function authorizeIntegration(request: Request, config: AppConfig, 
     throw new McpError('unauthorized', 'A CodeAI MCP integration grant is required.', 401);
   }
   let grant: McpGrant;
-  try { grant = grantSchema.parse(JSON.parse(await readFile(path.join(directory(config), `${id}.grant.json`), 'utf8'))); }
+  try { grant = await readGrant(config, id); }
   catch { throw new McpError('unauthorized', 'MCP grant is missing or revoked. Provision a new connection.', 401); }
   const expected = Buffer.from(grant.digest); const actual = Buffer.from(digest(bearer.slice(11)));
   if (!timingSafeEqual(expected, actual)) throw new McpError('unauthorized', 'Invalid MCP credential.', 401);

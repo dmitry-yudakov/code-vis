@@ -846,7 +846,7 @@ export class SessionStore {
     }
   }
 
-  async appendUserMessage(id: string, message: UserMessage, beforeSave?: () => Promise<void>): Promise<AppendUserMessageResult> {
+  async appendUserMessage(id: string, message: UserMessage, beforeSave?: (session: Readonly<DurableSession>) => Promise<void>): Promise<AppendUserMessageResult> {
     return this.mutate<AppendUserMessageResult>(id, async (session) => {
       const prior = session.messages.find((item) => item.id === message.id);
       if (prior) {
@@ -883,7 +883,7 @@ export class SessionStore {
       session.messages = boundSessionActivity(session.messages, message.turn?.runId);
       if (session.messages.length === 1) session.title = message.text.trim().slice(0, 56) || 'Sketch session';
       durableSessionSchema.parse(session);
-      await beforeSave?.();
+      await beforeSave?.(session);
       return { result: { session, appended: true }, changed: true };
     });
   }

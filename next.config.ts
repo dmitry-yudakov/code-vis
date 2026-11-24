@@ -56,6 +56,9 @@ const nextConfig: NextConfig = {
     return [{
       source: '/:path*',
       headers: [{ key: 'Permissions-Policy', value: XR_PERMISSIONS_POLICY }],
+    }, {
+      source: '/mcp/queue/:path*',
+      headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'none'" }],
     }];
   },
 };

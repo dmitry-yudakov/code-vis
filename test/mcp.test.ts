@@ -12,6 +12,8 @@ import { readActivity } from '@/server/storage/activityLog';
 import { mcpToolSchemas, type McpConnection, type McpScope } from '@/shared/mcp';
 import { createTurn } from '@/shared/turnActivity';
 import type { ExecutorSnapshot } from '@/shared/types';
+import { GET as GET_QUEUE_REVIEW, POST as APPROVE_QUEUE_REVIEW } from '@/app/api/integrations/mcp/queue/[grantId]/[requestId]/route';
+import { getDeviceAuthStore } from '@/server/devices/deviceAuthStore';
 
 const mocks = vi.hoisted(() => ({ submissions: 0, healthy: true, rejectSend: false, loseSendResponse: false }));
 vi.mock('@/server/agents/providerRegistry', () => {
@@ -89,6 +91,103 @@ describe('scoped running-server MCP bridge', () => {
     expect((await authorizeIntegration(secure, getConfig())).id).toBe(connection.grantId);
     const { authorizeDeviceRequest, authorizeMachineRequest } = await import('@/server/devices/deviceAuthorization');
     expect((await authorizeDeviceRequest(secure))?.status).toBe(401); expect((await authorizeMachineRequest(secure))?.status).toBe(401);
+  });
+  it('requires paired owner approval of the exact project queue before creation, and replays it after store reopen', async () => {
+    vi.stubEnv('CODEAI_REMOTE_ACCESS', 'paired');
+    vi.stubEnv('CODEAI_PUBLIC_ORIGIN', 'https://codeai.test');
+    vi.stubEnv('CODEAI_ADDITIONAL_ORIGINS', '');
+    const marker = 'mcp-queue-test';
+    const globals = globalThis as typeof globalThis & { __codeaiInternalTlsMarker?: string };
+    const previousMarker = globals.__codeaiInternalTlsMarker;
+    globals.__codeaiInternalTlsMarker = marker;
+    try {
+      const config = getConfig();
+      const store = getSessionStore(config.dataDir);
+      const project = await store.createProject('CodeAI Dev', ['shared']);
+      const foreign = await store.createProject('CodeAI Dev', ['foreign']);
+      const scoped = await provisionGrant(config, 'Queue with owner', [], project.id);
+      const conn = JSON.parse(await readFile(scoped.connectionPath, 'utf8')) as McpConnection;
+      const secureCall = async (operation: string, input: unknown = {}, use = conn) => {
+        const req = request(operation, input, use);
+        req.headers.set('x-codeai-internal-transport', marker);
+        const response = await bridgeOperation(req);
+        return { status: response.status, body: await response.json() };
+      };
+      const otherConnection = await grant();
+      const caps = await secureCall('get_capabilities');
+      expect(caps.body.scopes).toEqual(['projects:read', 'sessions:create:queue']);
+      const projects = await secureCall('list_projects');
+      expect(projects.body.rows.map((row: { id: string }) => row.id)).toEqual([project.id]);
+      const input = { projectId: project.id, expectedProjectBindings: projects.body.rows[0].bindingToken,
+        provider: 'codex', execution: 'local', checkoutMode: 'current', launch: 'queue', creationRequestId: randomUUID(),
+        firstMessage: { messageId: randomUUID(), text: 'Run focused checks', mode: 'ask' } };
+      expect((await secureCall('get_workspace')).status).toBe(403);
+      expect((await secureCall('send_message', { sessionId: randomUUID(), participantId: randomUUID(), ...input.firstMessage })).status).toBe(403);
+      expect((await secureCall('create_session', input, otherConnection)).status).toBe(403);
+      expect((await secureCall('create_session', { ...input, launch: 'run' })).status).toBe(403);
+      expect((await secureCall('create_session', { ...input, projectId: foreign.id, checkoutMode: 'worktree' })).status).toBe(403);
+      expect((await secureCall('create_session', { ...input, expectedProjectBindings: '0'.repeat(64) })).status).toBe(409);
+      const review = await secureCall('create_session', input);
+      expect(review.body).toMatchObject({ accepted: false, state: 'confirmation_required' });
+      expect((await secureCall('create_session', input)).body).toEqual(review.body);
+      expect(review.body.confirmationUrl).toBe(`${conn.origin}/mcp/queue/${conn.grantId}/${input.creationRequestId}`);
+      expect(await store.listSessions()).toHaveLength(0);
+      expect(mocks.submissions).toBe(0);
+
+      const url = `${conn.origin}/api/integrations/mcp/queue/${conn.grantId}/${input.creationRequestId}`;
+      const context = { params: Promise.resolve({ grantId: conn.grantId, requestId: input.creationRequestId }) };
+      const devices = getDeviceAuthStore(config.dataDir);
+      const challenge = await devices.issuePairingCode();
+      const device = await devices.pair(challenge.code, 'Owner phone');
+      const ownerHeaders = { 'x-codeai-internal-transport': marker, Cookie: `__Host-codeai-device=${device.credential}` };
+      expect((await GET_QUEUE_REVIEW(new Request(url, { headers: { 'x-codeai-internal-transport': marker,
+        Authorization: `CodeAI-MCP ${conn.credential}` } }), context)).status).toBe(401);
+      const preview = await GET_QUEUE_REVIEW(new Request(url, { headers: ownerHeaders }), context);
+      const proposal = await preview.json();
+      expect(proposal).toMatchObject({ request: input, checkoutId: 'shared', approved: false });
+      expect(preview.headers.get('cache-control')).toContain('no-store');
+      const approve = (fingerprint: string, origin = conn.origin) => APPROVE_QUEUE_REVIEW(new Request(url, {
+        method: 'POST', headers: { ...ownerHeaders, Origin: origin }, body: JSON.stringify({ fingerprint }),
+      }), context);
+      expect((await approve(proposal.fingerprint, 'https://other.test')).status).toBe(403);
+      expect((await approve('0'.repeat(64))).status).toBe(409);
+      expect((await (await approve(proposal.fingerprint)).json()).approved).toBe(true);
+      expect(await store.listSessions()).toHaveLength(0);
+      expect((await secureCall('create_session', { ...input, firstMessage: { ...input.firstMessage, text: 'Changed' } })).status).toBe(409);
+      mocks.loseSendResponse = true;
+      const launched = await secureCall('create_session', input);
+      expect(launched.body).toMatchObject({ accepted: true, messageId: input.firstMessage.messageId });
+      expect((await GET_QUEUE_REVIEW(new Request(url, { headers: ownerHeaders }), context)).status).toBe(404);
+      await store.close();
+      const retry = await secureCall('create_session', input);
+      expect(retry.body).toMatchObject({ sessionId: launched.body.sessionId, runId: launched.body.runId });
+      const saved = await getSessionStore(config.dataDir).getSession(retry.body.sessionId);
+      expect(saved.messages).toHaveLength(1);
+      expect(mocks.submissions).toBe(1);
+
+      const partialInput = { ...input, creationRequestId: randomUUID(), firstMessage: { ...input.firstMessage, messageId: randomUUID() } };
+      const partialReview = await secureCall('create_session', partialInput);
+      const partialUrl = partialReview.body.confirmationUrl.replace('/mcp/queue/', '/api/integrations/mcp/queue/');
+      const partialContext = { params: Promise.resolve({ grantId: conn.grantId, requestId: partialInput.creationRequestId }) };
+      const partialPreview = await (await GET_QUEUE_REVIEW(new Request(partialUrl, { headers: ownerHeaders }), partialContext)).json();
+      expect((await APPROVE_QUEUE_REVIEW(new Request(partialUrl, { method: 'POST', headers: { ...ownerHeaders, Origin: conn.origin },
+        body: JSON.stringify({ fingerprint: partialPreview.fingerprint }) }), partialContext)).status).toBe(200);
+      mocks.rejectSend = true;
+      const partial = await secureCall('create_session', partialInput);
+      expect(partial.body).toMatchObject({ state: 'first_message_not_accepted', accepted: false });
+      const reopened = getSessionStore(config.dataDir);
+      const retained = await reopened.getSession(partial.body.sessionId);
+      await reopened.setSessionRepositories(retained.id, [{ ...retained.repositories[0], id: randomUUID(), checkoutId: 'changed' }], retained.revision);
+      mocks.rejectSend = false;
+      expect((await secureCall('create_session', partialInput)).body).toMatchObject({ sessionId: retained.id, accepted: false,
+        state: 'first_message_not_accepted', error: expect.stringContaining('checkout changed') });
+      expect((await reopened.getSession(retained.id)).messages).toHaveLength(0);
+      expect(mocks.submissions).toBe(2);
+      await revokeGrant(config, conn.grantId);
+      expect((await secureCall('create_session', input)).status).toBe(401);
+    } finally {
+      globals.__codeaiInternalTlsMarker = previousMarker;
+    }
   });
   it('includes empty projects and all active/unassigned sessions with pinned pages and archive opt-in', async () => {
     const store = getSessionStore(getConfig().dataDir); const p = await store.createProject('Empty', []);

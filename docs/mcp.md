@@ -45,7 +45,7 @@ Explicitly add only the management capabilities the host needs:
 npm run mcp:grant -- "Session assistant" sessions:create sessions:archive participants:add messages:send
 ```
 
-Every grant includes `projects:read` and `sessions:read`. The host sees only tools allowed by its
+Ordinary grants include `projects:read` and `sessions:read`. The host sees only tools allowed by its
 grant; the server checks scopes again on dispatch and immediately before mutations. Creating a
 session includes its bound first message without `messages:send`. Any separate `send_message`,
 even to an empty session, requires `messages:send`. Participant addition does not send a message.
@@ -54,7 +54,39 @@ Open **More → Activity log** on this machine and choose **MCP** as the source 
 verified grants. Each entry shows the grant, operation, outcome and any related session or message
 IDs. The log also records saved changes, so a launch can show a session creation and a first
 message acceptance alongside the tool call. The log keeps recent metadata in rotating local files.
-Prompt text and attachments stay in the conversation.
+The log stores metadata without prompt text or attachments.
+
+## Queue a session in one project
+
+On a paired HTTPS installation, the owner can provision a dedicated queue connection from the
+installation terminal. Use the stable UUID of **CodeAI Dev** as `PROJECT_UUID`.
+
+```sh
+npm run mcp:grant -- "CodeAI Dev queue" --queue-project PROJECT_UUID
+```
+
+This connection advertises `list_projects` for the single granted project and `create_session` with
+`launch: "queue"`. Use the project's returned `bindingToken` as `expectedProjectBindings`. Set
+`checkoutMode` to `current` or `worktree` and include a first message. CodeAI checks the project UUID
+before any session or worktree creation. The connection has no separate message or archive tool.
+
+1. Call `create_session` with the complete request and keep both UUIDs. `confirmation_required`
+   returns a review link without creating a session or worktree.
+2. Open that link on a paired device. Review the project, checkout, execution, mode and exact first
+   message, then select **Approve queue request**. CodeAI holds up to eight reviews per grant for
+   fifteen minutes. Pending review text stays in private installation storage until submission
+   or cleanup on a later request or grant revocation.
+3. Send the identical `create_session` request after confirmation. Report acceptance and the actual
+   run state separately. A retained session with a rejected or uncertain first message can be retried
+   with the same payload. After durable creation, exact replays use the creation receipt even after
+   the review expires. Changed payloads require a new review and new request UUIDs.
+
+Add this connection to the owner-directed MCP host separately from any briefing connection. The
+queue grant limits CodeAI operations. Repository access during execution follows the machine's
+provider and execution policy. Earlier conversations release the queue through the ordinary
+archive flow.
+
+## Tool reference
 
 | Tool | Input and behavior |
 | --- | --- |

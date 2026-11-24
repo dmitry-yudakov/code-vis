@@ -1,4 +1,5 @@
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer, type RequestListener, type Server as HttpServer } from 'node:http';
+import { createServer as createTlsServer } from 'node:https';
 import { spawn, execFile } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
@@ -17,11 +18,14 @@ import { provisionGrant, revokeGrant } from '@/server/integrations/mcp/grants';
 import { bridgeOperation, bridgeSubscription } from '@/server/integrations/mcp/bridge';
 import { runRegistry } from '@/server/runs/runRegistry';
 import { readWorktreeRecords } from '@/server/repository/managedWorktrees';
+import { archiveSession } from '@/server/conversation/archiveSession';
+import { getDeviceAuthStore } from '@/server/devices/deviceAuthStore';
+import { GET as GET_QUEUE_REVIEW, POST as APPROVE_QUEUE_REVIEW } from '@/app/api/integrations/mcp/queue/[grantId]/[requestId]/route';
 
 const git = promisify(execFile); let root: string, server: HttpServer, origin: string, connectionPath: string, grantId: string;
 const clients: Client[] = []; const transports: StdioClientTransport[] = [];
 const script = path.resolve('scripts/mcp.ts'); const loader = path.resolve('node_modules/tsx/dist/loader.mjs');
-async function connect(file = connectionPath) {
+async function connect(file = connectionPath, env?: Record<string, string>) {
   let protocol: string | undefined;
   class ObservedTransport extends StdioClientTransport {
     override async start() {
@@ -33,7 +37,7 @@ async function connect(file = connectionPath) {
       return super.start();
     }
   }
-  const transport = new ObservedTransport({ command: process.execPath, args: ['--import', loader, script, file], cwd: '/tmp', stderr: 'pipe' });
+  const transport = new ObservedTransport({ command: process.execPath, args: ['--import', loader, script, file], cwd: '/tmp', stderr: 'pipe', env });
   transports.push(transport); let errors = ''; transport.stderr?.on('data', b => { errors += b.toString(); });
   const client = new Client({ name: 'codeai-runtime-test-host', version: '1.0.0' }); clients.push(client);
   try { await client.connect(transport); } catch (error) { throw new Error(`${error}: ${errors}`); }
@@ -45,19 +49,14 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
   return result.structuredContent as Record<string, any>;
 }
 async function settled(id: string) { await vi.waitFor(() => expect(runRegistry.hasLiveSession(id)).toBe(false), { timeout: 15000 }); }
-beforeAll(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), 'codeai-mcp-runtime-')); const repo = path.join(root, 'repos', 'sample'); await mkdir(repo, { recursive: true });
-  await git('git', ['init', '-q', repo]); await git('git', ['-C', repo, 'config', 'user.name', 'MCP fixture']); await git('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
-  await writeFile(path.join(repo, 'file.txt'), 'source\n'); await git('git', ['-C', repo, 'add', '.']); await git('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-C', repo, 'commit', '-qm', 'fixture']);
-  vi.stubEnv('CODEAI_DATA_DIR', path.join(root, 'data')); vi.stubEnv('CODEAI_REPOSITORIES_ROOT', path.join(root, 'repos')); vi.stubEnv('CODEAI_WORKTREES_ROOT', path.join(root, 'worktrees'));
-  vi.stubEnv('CODEAI_REMOTE_ACCESS', 'local'); vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false'); vi.stubEnv('CODEAI_CODEX_AGENT', 'true'); vi.stubEnv('CODEAI_DEBUG_AGENT', 'false'); vi.stubEnv('CODEAI_CLAUDE_BIN', path.resolve('test/fixtures/fake-claude.mjs'));
-  vi.stubEnv('CODEAI_CODEX_BIN', path.resolve('test/fixtures/fake-codex.mjs')); vi.stubEnv('CODEAI_FAKE_TOOL_DELAY_MS', '5'); vi.stubEnv('CODEAI_FAKE_MODE', 'normal');
-  server = createServer(async (req, res) => {
+function serveBridge(getOrigin: () => string, marker?: string): RequestListener {
+  return async (req, res) => {
     const abort = new AbortController(); res.once('close', () => abort.abort());
     try {
       const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
       const headers = new Headers(); for (const [key, value] of Object.entries(req.headers)) if (value) headers.set(key, Array.isArray(value) ? value.join(',') : value);
-      const request = new Request(`${origin}${req.url}`, { method: req.method, headers, signal: abort.signal,
+      if (marker) headers.set('x-codeai-internal-transport', marker);
+      const request = new Request(`${getOrigin()}${req.url}`, { method: req.method, headers, signal: abort.signal,
         ...(req.method === 'POST' ? { body: Buffer.concat(chunks).toString('utf8') } : {}) });
       const response = await (req.method === 'GET' ? bridgeSubscription(request) : bridgeOperation(request));
       res.writeHead(response.status, Object.fromEntries(response.headers));
@@ -68,7 +67,16 @@ beforeAll(async () => {
       }
       res.end();
     } catch { if (!res.headersSent) res.writeHead(500); res.end(); }
-  });
+  };
+}
+beforeAll(async () => {
+  root = await mkdtemp(path.join(os.tmpdir(), 'codeai-mcp-runtime-')); const repo = path.join(root, 'repos', 'sample'); await mkdir(repo, { recursive: true });
+  await git('git', ['init', '-q', repo]); await git('git', ['-C', repo, 'config', 'user.name', 'MCP fixture']); await git('git', ['-C', repo, 'config', 'user.email', 'test@example.invalid']);
+  await writeFile(path.join(repo, 'file.txt'), 'source\n'); await git('git', ['-C', repo, 'add', '.']); await git('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-C', repo, 'commit', '-qm', 'fixture']);
+  vi.stubEnv('CODEAI_DATA_DIR', path.join(root, 'data')); vi.stubEnv('CODEAI_REPOSITORIES_ROOT', path.join(root, 'repos')); vi.stubEnv('CODEAI_WORKTREES_ROOT', path.join(root, 'worktrees'));
+  vi.stubEnv('CODEAI_REMOTE_ACCESS', 'local'); vi.stubEnv('CODEAI_DOCKER_ENABLED', 'false'); vi.stubEnv('CODEAI_CODEX_AGENT', 'true'); vi.stubEnv('CODEAI_DEBUG_AGENT', 'false'); vi.stubEnv('CODEAI_CLAUDE_BIN', path.resolve('test/fixtures/fake-claude.mjs'));
+  vi.stubEnv('CODEAI_CODEX_BIN', path.resolve('test/fixtures/fake-codex.mjs')); vi.stubEnv('CODEAI_FAKE_TOOL_DELAY_MS', '5'); vi.stubEnv('CODEAI_FAKE_MODE', 'normal');
+  server = createServer(serveBridge(() => origin));
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`; vi.stubEnv('CODEAI_MCP_ORIGIN', origin);
   await getSessionStore(getConfig().dataDir).host();
@@ -123,6 +131,90 @@ it('delivers creation, queue release, worktree placement, addressed review/corre
   await settled(queued.sessionId); expect((await store.getSession(queued.sessionId)).messages.some(m => m.role === 'assistant')).toBe(true);
   await client.close();
 }, 60000);
+it('negotiates a paired project queue grant, then releases one approved launch on archive', async () => {
+  const cert = path.join(root, 'queue-cert.pem'); const key = path.join(root, 'queue-key.pem');
+  await promisify(execFile)('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+    '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', key, '-out', cert]);
+  const globals = globalThis as typeof globalThis & { __codeaiInternalTlsMarker?: string };
+  const previousMarker = globals.__codeaiInternalTlsMarker;
+  const marker = randomUUID();
+  let pairedOrigin = '';
+  const tlsServer = createTlsServer({ key: await readFile(key), cert: await readFile(cert) }, serveBridge(() => pairedOrigin, marker));
+  await new Promise<void>((resolve, reject) => { tlsServer.once('error', reject); tlsServer.listen(0, '127.0.0.1', resolve); });
+  pairedOrigin = `https://127.0.0.1:${(tlsServer.address() as { port: number }).port}`;
+  const previousPublicOrigin = process.env.CODEAI_PUBLIC_ORIGIN;
+  const previousAdditionalOrigins = process.env.CODEAI_ADDITIONAL_ORIGINS;
+  vi.stubEnv('CODEAI_PUBLIC_ORIGIN', pairedOrigin);
+  vi.stubEnv('CODEAI_ADDITIONAL_ORIGINS', '');
+  vi.stubEnv('CODEAI_REMOTE_ACCESS', 'paired');
+  globals.__codeaiInternalTlsMarker = marker;
+  let client: Client | undefined;
+  try {
+    const config = getConfig(); const store = getSessionStore(config.dataDir);
+    const repo = path.join(config.repositoriesRoot, 'scoped');
+    await git('git', ['clone', '-q', path.join(config.repositoriesRoot, 'sample'), repo]);
+    const checkout = (await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).refresh()).find(item => item.realPath === repo)!;
+    const project = await store.createProject('CodeAI Dev', [checkout.id]);
+    const blocker = await store.createSession({ provider: 'codex', projectId: project.id });
+    await store.appendUserMessage(blocker.id, { id: randomUUID(), role: 'user', authorId: blocker.participants[0].id,
+      addressedParticipantId: blocker.primaryAgentId, text: 'Earlier work', createdAt: new Date().toISOString(), status: 'sent', diagramAttachments: [] });
+    const grant = await provisionGrant(config, 'CodeAI Dev queue', [], project.id);
+    ({ client } = await connect(grant.connectionPath, { NODE_EXTRA_CA_CERTS: cert }));
+    const tools = (await client.listTools()).tools;
+    expect(tools.map(tool => tool.name)).toEqual(['list_projects', 'create_session']);
+    expect(tools[1].inputSchema.properties?.launch).toMatchObject({ const: 'queue' });
+    expect(client.getServerCapabilities()?.resources).toBeUndefined();
+    const projects = await call(client, 'list_projects');
+    expect(projects.rows.map((row: { id: string }) => row.id)).toEqual([project.id]);
+    const input = { projectId: project.id, expectedProjectBindings: projects.rows[0].bindingToken, provider: 'codex', execution: 'local',
+      checkoutMode: 'current', launch: 'queue', creationRequestId: randomUUID(),
+      firstMessage: { messageId: randomUUID(), text: 'Approved queued task', mode: 'ask' } };
+    const proposal = await call(client, 'create_session', input);
+    expect(proposal.state).toBe('confirmation_required');
+    expect((await store.listSessions()).filter(session => session.projectId === project.id)).toHaveLength(1);
+
+    const devices = getDeviceAuthStore(config.dataDir);
+    const challenge = await devices.issuePairingCode();
+    const owner = await devices.pair(challenge.code, 'Paired owner');
+    const headers = { 'x-codeai-internal-transport': marker, Cookie: `__Host-codeai-device=${owner.credential}`, Origin: pairedOrigin };
+    const approve = async (confirmationUrl: string, creationRequestId: string) => {
+      const reviewUrl = confirmationUrl.replace('/mcp/queue/', '/api/integrations/mcp/queue/');
+      const context = { params: Promise.resolve({ grantId: grant.grant.id, requestId: creationRequestId }) };
+      const review = await (await GET_QUEUE_REVIEW(new Request(reviewUrl, { headers }), context)).json();
+      expect(review).toMatchObject({ checkoutId: checkout.id, checkoutName: 'scoped' });
+      const approved = await APPROVE_QUEUE_REVIEW(new Request(reviewUrl, { method: 'POST', headers,
+        body: JSON.stringify({ fingerprint: review.fingerprint }) }), context);
+      expect(approved.status).toBe(200);
+    };
+    await approve(proposal.confirmationUrl, input.creationRequestId);
+    const [queued, replay] = await Promise.all([call(client, 'create_session', input), call(client, 'create_session', input)]);
+    expect(queued).toMatchObject({ accepted: true, state: 'queued', messageId: input.firstMessage.messageId });
+    expect(replay).toMatchObject({ accepted: true, sessionId: queued.sessionId, runId: queued.runId });
+    expect((await store.getSession(queued.sessionId)).messages).toHaveLength(1);
+    const worktreeInput = { ...input, checkoutMode: 'worktree', creationRequestId: randomUUID(),
+      firstMessage: { ...input.firstMessage, messageId: randomUUID(), text: 'Independent approved worktree' } };
+    const worktreeReview = await call(client, 'create_session', worktreeInput);
+    await approve(worktreeReview.confirmationUrl, worktreeInput.creationRequestId);
+    const worktree = await call(client, 'create_session', worktreeInput);
+    expect(worktree).toMatchObject({ accepted: true, worktree: { originCheckoutId: checkout.id } });
+    await settled(worktree.sessionId);
+    expect((await store.getSession(worktree.sessionId)).messages.some(message => message.role === 'assistant')).toBe(true);
+    expect((await call(client, 'create_session', input)).state).toBe('queued');
+    const earlier = await store.getSession(blocker.id);
+    expect(earlier.archivedAt).toBeUndefined();
+    await archiveSession(earlier.id, earlier.revision, config);
+    await settled(queued.sessionId);
+    expect((await store.getSession(queued.sessionId)).messages.some(message => message.role === 'assistant')).toBe(true);
+  } finally {
+    await client?.close().catch(() => undefined);
+    tlsServer.closeAllConnections();
+    await new Promise<void>(resolve => tlsServer.close(() => resolve()));
+    vi.stubEnv('CODEAI_REMOTE_ACCESS', 'local');
+    vi.stubEnv('CODEAI_PUBLIC_ORIGIN', previousPublicOrigin);
+    vi.stubEnv('CODEAI_ADDITIONAL_ORIGINS', previousAdditionalOrigins);
+    globals.__codeaiInternalTlsMarker = previousMarker;
+  }
+}, 30000);
 it('stops the example and its uncooperative inference child while leaving CodeAI work live', async () => {
   const config = getConfig(); const store = getSessionStore(config.dataDir);
   const session = await store.createSession({ provider: 'codex' });

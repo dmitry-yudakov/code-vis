@@ -41,14 +41,14 @@ export function creationFingerprint(request: SessionCreationRequest): string {
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 }
 
-export function projectBindingsFingerprint(project: DurableProject): string {
+export function projectBindingsFingerprint(project: Pick<DurableProject, 'repositories'>): string {
   return createHash('sha256').update(JSON.stringify(project.repositories.map(({ id, hostId, checkoutId, role }) => (
     { id, hostId, checkoutId, role }
   )))).digest('hex');
 }
 
 /** Completed requests replay before preflight; unfinished worktree intents stay with their journal. */
-export async function replaySessionCreation(request: SessionCreationRequest, config: AppConfig) {
+export async function inspectSessionCreation(request: SessionCreationRequest, config: AppConfig) {
   if (!request.creationRequestId) return undefined;
   const store = getSessionStore(config.dataDir, config.hostLabel);
   const prior = await store.findCreationReceipt(request.creationRequestId);
@@ -56,7 +56,7 @@ export async function replaySessionCreation(request: SessionCreationRequest, con
     if (prior.creationReceipt!.fingerprint !== creationFingerprint(request)) {
       throw new SessionStoreError('conflict', 'Creation request id was already used with different choices.');
     }
-    return prior;
+    return { session: prior };
   }
   const { readWorktreeRecords } = await import('@/server/repository/managedWorktrees');
   const record = (await readWorktreeRecords(config.dataDir)).find((item) => item.request.creationRequestId === request.creationRequestId);
@@ -65,12 +65,13 @@ export async function replaySessionCreation(request: SessionCreationRequest, con
       throw new SessionStoreError('conflict', 'Creation request id was already used with different choices.');
     }
     if (record.state === 'ready') {
-      try { return await store.getSession(record.session.id); }
+      try { return { session: await store.getSession(record.session.id) }; }
       catch (error) {
         if (sessionStoreErrorCode(error) !== 'unknown') throw error;
-        return store.getArchivedSession(record.session.id);
+        return { session: await store.getArchivedSession(record.session.id) };
       }
     }
+    return { session: undefined };
   } else if (await lstat(path.join(config.dataDir, 'worktrees', `${request.creationRequestId}.json`)).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== 'ENOENT') throw error;
     return undefined;
@@ -78,6 +79,10 @@ export async function replaySessionCreation(request: SessionCreationRequest, con
     throw new SessionStoreError('conflict', 'The retained creation journal requires inspection. Retry cannot replace it.');
   }
   return undefined;
+}
+
+export async function replaySessionCreation(request: SessionCreationRequest, config: AppConfig) {
+  return (await inspectSessionCreation(request, config))?.session;
 }
 
 /** Failure classification never discards a durable intent or a request still being serialized. */

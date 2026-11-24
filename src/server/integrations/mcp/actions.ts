@@ -3,7 +3,7 @@ import { getSessionStore, serverAgent, SessionStoreError } from '@/server/storag
 import { createRequestedSession } from '@/server/conversation/sessionCreation';
 import { submitMessage } from '@/server/conversation/submitMessage';
 import { archiveSession } from '@/server/conversation/archiveSession';
-import { sessionCreationFailure, replaySessionCreation, type SessionCreationRequest } from '@/server/storage/creationRequests';
+import { projectBindingsFingerprint, sessionCreationFailure, replaySessionCreation, type SessionCreationRequest } from '@/server/storage/creationRequests';
 import { getProviderAdapters } from '@/server/agents/providerRegistry';
 import { AGENT_ROLE_DEFAULT_MODES } from '@/shared/participants';
 import { runRegistry } from '@/server/runs/runRegistry';
@@ -14,7 +14,7 @@ import { digest, McpError } from './grants';
 import { loadSession } from './reads';
 
 type Input<K extends McpBridgeRequest['operation']> = Extract<McpBridgeRequest, { operation: K }>['input'];
-type MutationAccess = { authorize(): Promise<void>; actor: ActivityActor };
+type MutationAccess = { authorize(): Promise<void>; actor: ActivityActor; validateSession?(session: Readonly<DurableSession>): void };
 function launchResult(session: DurableSession) {
   return { sessionId: session.id, link: `/?session=${session.id}`, revision: session.revision, archivedAt: session.archivedAt ?? null,
     execution: session.execution ?? 'local', primaryAgentId: session.primaryAgentId,
@@ -36,6 +36,8 @@ export async function sendMessage(input: Input<'send_message'>, config: AppConfi
   if (prior) return prior;
   if (session.archivedAt) throw new McpError('archived', 'Cannot send to an archived session.', 409);
   if (!serverAgent(session, input.participantId)) throw new McpError('invalid_participant', 'The participant does not belong to this session.', 400);
+  try { access.validateSession?.(session); }
+  catch (error) { throw new McpError('rejected', error instanceof Error ? error.message : 'The session changed.', 409); }
   await access.authorize();
   let response: Response | undefined;
   try {
@@ -52,9 +54,14 @@ export async function sendMessage(input: Input<'send_message'>, config: AppConfi
   const body = await response.json();
   throw new McpError('rejected', body.error || 'Message was not accepted. Read the session and retry the exact request.', response.status, response.status >= 500 || response.status === 429);
 }
-export async function createSession(input: Input<'create_session'>, config: AppConfig, access: MutationAccess) {
-  const { firstMessage, launch, ...creation } = input;
-  const request: SessionCreationRequest = { ...creation, mcpLaunchFingerprint: digest(input) };
+export function mcpCreationRequest(input: Input<'create_session'>, scopedGrantId?: string): SessionCreationRequest {
+  const { firstMessage: _message, launch: _launch, ...creation } = input;
+  return { ...creation, mcpLaunchFingerprint: digest(scopedGrantId ? [scopedGrantId, input] : input) };
+}
+
+export async function createSession(input: Input<'create_session'>, config: AppConfig, access: MutationAccess, scopedGrantId?: string) {
+  const { firstMessage, launch } = input;
+  const request = mcpCreationRequest(input, scopedGrantId);
   // Replay the durable identity before preflight: archived or already accepted launches never execute again.
   let session = await replaySessionCreation(request, config);
   if (!session) {
@@ -77,8 +84,19 @@ export async function createSession(input: Input<'create_session'>, config: AppC
   if (session.archivedAt || !firstMessage) return { ...launchResult(session), resolved, state: session.archivedAt ? 'archived' : 'empty', accepted: false };
   // The initially created agent remains the launch recipient even if the main agent later changes.
   const participantId = session.participants.find(p => p.kind === 'agent')!.id;
+  const launchAccess = scopedGrantId ? { ...access, validateSession(current: Readonly<DurableSession>) {
+    const worktree = input.checkoutMode === 'worktree' ? current.worktree : undefined;
+    const repositories = worktree ? current.repositories.map(binding => ({ ...binding, checkoutId: worktree.originCheckoutId })) : current.repositories;
+    if (current.projectId !== input.projectId || (input.checkoutMode === 'worktree' && !worktree) ||
+        projectBindingsFingerprint({ repositories }) !== input.expectedProjectBindings) {
+      throw new SessionStoreError('conflict', 'The session checkout changed after approval. Prepare a new queue request.');
+    }
+    if (current.messages.some(message => message.id !== firstMessage.messageId)) {
+      throw new SessionStoreError('conflict', 'This session already has another message. Prepare a new queue request.');
+    }
+  } } : access;
   try {
-    const result = await sendMessage({ sessionId: session.id, participantId, ...firstMessage }, config, access, launch === 'queue');
+    const result = await sendMessage({ sessionId: session.id, participantId, ...firstMessage }, config, launchAccess, launch === 'queue');
     return { ...launchResult(session), resolved, ...result };
   } catch (error) {
     return { ...launchResult(session), resolved, accepted: false,

@@ -221,7 +221,7 @@ describe.sequential('CodeAI reports as durable message evidence', () => {
     const session = await sessionIn('checkout-self');
     const reportId = await capture();
     vi.spyOn(store, 'appendUserMessage').mockImplementationOnce(async (_id, _message, beforeSave) => {
-      await beforeSave?.();
+      await beforeSave?.(session);
       throw new Error('Simulated crash between copy and append');
     });
     const failed = await send(session, [reportId]);
