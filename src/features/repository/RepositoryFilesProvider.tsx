@@ -10,6 +10,7 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MarkdownTable } from '@/features/markdown/MarkdownTable';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 import type { GitChangedFile } from '@/shared/types';
 import { openTab, closeTab, resolveTab, tabFileContext, type FileTabs } from './repositoryFileTabs';
@@ -257,6 +258,7 @@ export function RepositoryFileViewer({ link, checkoutId, repositories, apiBase, 
           </> : <article className="assistant-blocks diff-markdown-preview" aria-label="Markdown preview">
             <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={repositoryUrlTransform} components={{
               pre: MarkdownPreviewCodeBlock,
+              table: MarkdownTable,
               a: ({ href, children }) => <RepositoryLink href={href} documentPath={file.path} checkoutId={result.checkoutId}>{children}</RepositoryLink>,
               img: ({ alt }) => <span>[Image: {alt || 'image'}]</span>,
             }}>{file.text}</ReactMarkdown>

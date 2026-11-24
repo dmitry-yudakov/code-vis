@@ -17,6 +17,7 @@ import type { TextFile } from '@/shared/textFiles';
 import type { ThemeName } from '@/shared/design/tokens';
 import type { AgentMode, ChatMessage as ChatMessageType, DiagramAttachmentRecord, Participant } from '@/shared/types';
 import { DiagramCard } from '@/features/diagram/components/DiagramCard';
+import { MarkdownTable } from '@/features/markdown/MarkdownTable';
 import { reportAttachmentSummary } from '@/features/reports/reportModel';
 import { imageAttachmentSummary } from './imageAttachments';
 import { CodeBlock } from './CodeBlock';
@@ -154,6 +155,7 @@ export function ChatMessage({ message, theme, participants, activeDiagramId, det
                 a: RepositoryLink,
                 pre: CodeBlock,
                 code: ({ children }) => <code>{children}</code>,
+                table: MarkdownTable,
               }}
             >
               {block.markdown}

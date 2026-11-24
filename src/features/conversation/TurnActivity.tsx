@@ -5,6 +5,7 @@ import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { MarkdownTable } from '@/features/markdown/MarkdownTable';
 import { Disclosure } from '@/features/shell/Disclosure';
 import type { PendingPermission } from '@/features/agents/toolActivity';
 import type { TurnRecord, ToolStatus } from '@/shared/turnActivity';
@@ -18,6 +19,7 @@ export function StreamingMarkdown({ text }: { text: string }) {
     a: RepositoryLink,
     img: ({ alt }) => <span>{alt ? `[Image: ${alt}]` : '[Image omitted]'}</span>,
     pre: CodeBlock,
+    table: MarkdownTable,
   }}>{text}</ReactMarkdown></div>;
 }
 export function TurnActivity({ turn, agentName, permissions, onReview, renderFinal, renderNavigation, onLoadDetails, detailsLoading }: {

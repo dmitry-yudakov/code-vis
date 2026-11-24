@@ -8,6 +8,7 @@ import { useCallback, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+import { MarkdownTable } from '@/features/markdown/MarkdownTable';
 import { ShellIcon } from '@/features/shell/ShellIcon';
 import type { GitChangedFile } from '@/shared/types';
 import type { RepositoryDiffState } from './useRepositoryDiff';
@@ -72,6 +73,7 @@ export function RepositoryDiffInspector({ file, state, onClose, onOpenFile, onRe
           <article className="assistant-blocks diff-markdown-preview" aria-label="Markdown preview">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
               pre: MarkdownPreviewCodeBlock,
+              table: MarkdownTable,
               a: ({ href, children }) => /^https?:\/\//i.test(href ?? '')
                 ? <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>
                 : <span title={href}>{children}</span>,

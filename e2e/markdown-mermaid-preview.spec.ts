@@ -11,7 +11,10 @@ const markdown = '# Diagram document\n\nBefore the diagrams. Inline `mermaid` st
   + '```mermaid\nflowchart LR\n  A[Unsafe] --> B[Link]\n  click A "https://example.com/mermaid-must-not-load"\n```\n\n'
   + 'After the diagrams.\n\n[External link](https://example.com/reference)\n\n'
   + '![Remote](https://example.com/mermaid-must-not-load.png)\n\n'
-  + '<script>window.mermaidPreviewScriptRan = true</script>\n';
+  + '<script>window.mermaidPreviewScriptRan = true</script>\n\n'
+  + '| Configuration | Authentication | Reconciliation | Administration | Documentation |\n'
+  + '| --- | --- | --- | --- | --- |\n'
+  + '| Enabled | Required | Complete | Available | Published |\n';
 
 const activeFile = (page: Page) => page.locator('.file-view-content:not([hidden])');
 const preview = (page: Page) => activeFile(page).getByRole('article', { name: 'Markdown preview', exact: true });
@@ -63,6 +66,9 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
       await expect(article.locator('p > code')).toHaveText('mermaid');
       await expect(article).toContainText('After the diagrams.');
       await expect(article.getByRole('link', { name: 'External link' })).toHaveAttribute('target', '_blank');
+      const table = article.getByRole('region', { name: 'Markdown table' });
+      await expect(table.getByRole('columnheader', { name: 'Documentation' })).toBeAttached();
+      if (width === 390) expect(await table.evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true);
       await expect(article.locator('img, script')).toHaveCount(0);
       expect(unwantedRequests).toEqual([]);
       expect(await page.evaluate(() => 'mermaidPreviewScriptRan' in window)).toBe(false);

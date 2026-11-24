@@ -471,6 +471,16 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .assistant-blocks li + li { margin-top: 3px; }
 .assistant-blocks a { color: var(--plot); }
 .assistant-blocks code { padding: 1px 4px; border-radius: 4px; background: var(--inline-code-surface); font: 11px/1.4 var(--mono); }
+.markdown-table-scroll { overflow-x: auto; margin-block: 12px; }
+/* Keep whole words in intrinsic column widths, with emergency wrapping for oversized tokens. */
+.markdown-table-scroll table { border-collapse: collapse; overflow-wrap: break-word; }
+.markdown-table-scroll :is(th, td) {
+  max-inline-size: 60ch;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  vertical-align: top;
+}
 .code-block pre, .assistant-blocks pre { overflow: auto; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--code-surface); color: var(--code-ink); }
 .code-block { margin: 12px 0; }
 .code-block pre { margin: 0; padding-top: 4px; border: 0; border-radius: 0; }
@@ -702,8 +712,6 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .diff-inspector-toolbar { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--sheet); }
 .diff-preview-source { color: var(--muted); font-size: 10px; }
 .diff-markdown-preview { max-width: 960px; margin: 0 auto; padding: 20px; color: var(--ink); }
-.diff-markdown-preview table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
-.diff-markdown-preview :is(th, td) { padding: 6px 10px; border: 1px solid var(--line); text-align: left; }
 .diff-preview-image { color: var(--muted); }
 .markdown-mermaid { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); }
 .markdown-mermaid > p { margin: 0; color: var(--muted); }
