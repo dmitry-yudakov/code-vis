@@ -447,6 +447,33 @@ test('two tiles send real background replies without navigation and receive save
   }
 });
 
+test('Arena opens with code and tables in collapsed Markdown previews', async ({ page, request }) => {
+  const { created: [session] } = await sessions(request, 1);
+  const snapshot = await (await request.get('/api/arena')).json() as ArenaSnapshot;
+  const machine = snapshot.machines.find(machine => machine.machine.kind === 'local')!;
+  machine.sessions = machine.sessions.filter(item => item.id === session.id);
+  machine.sessions[0].lastMessage = { author: 'Claude', role: 'assistant', text: [
+    '```js', 'const ready = true;', '```', '',
+    '| Check | Status |', '| --- | --- |', '| Parser | Passed |', '| Build | Passed |', '| Browser | Passed |', '| Review | Passed |',
+  ].join('\n'), truncated: false };
+  await page.route('**/api/arena', route => fulfillArenaSnapshot(route, { json: snapshot }));
+
+  await openTiles(page);
+  const preview = cardFor(page, session.id).locator('.arena-tile-preview');
+  await expect(preview.locator('pre code')).toHaveText('const ready = true;');
+  await expect(preview.getByRole('table')).toContainText('Passed');
+  await expect(preview.getByRole('button', { name: 'Copy code' })).toHaveCount(0);
+  await expect(preview.getByRole('region', { name: 'Markdown table' })).toHaveCount(0);
+
+  await preview.getByRole('button', { name: 'Show more', exact: true }).click();
+  await expect(preview.getByRole('button', { name: 'Copy code' })).toBeVisible();
+  await expect(preview.getByRole('region', { name: 'Markdown table' }).getByRole('table')).toContainText('Passed');
+  await preview.getByRole('button', { name: 'Show less', exact: true }).click();
+  await expect(preview.locator('pre code')).toHaveText('const ready = true;');
+  await expect(preview.getByRole('table')).toContainText('Passed');
+  await expect(cardFor(page, session.id).getByRole('textbox')).toBeEditable();
+});
+
 test('Show more lazily reads the complete saved Markdown response and keeps the tile reply', async ({ page, request }, testInfo) => {
   const { created: [session, neighbor] } = await sessions(request, 2);
   const messageReads: string[] = [];

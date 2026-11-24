@@ -78,8 +78,7 @@ export const ArenaMessagePreview = memo(function ArenaMessagePreview({ session, 
           a: ({ href, children }) => (expanded || !clipped) && href && /^(https?:|mailto:)/i.test(href)
             ? <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> : <span>{children}</span>,
           img: ({ alt }) => <span>{alt || '[Image]'}</span>,
-          pre: expanded ? CodeBlock : undefined,
-          table: expanded ? MarkdownTable : undefined,
+          ...(expanded ? { pre: CodeBlock, table: MarkdownTable } : {}),
         }}>{text}</ReactMarkdown> : <p className="arena-tile-plain">{text || (message
           ? 'This message contains code or canvas content.' : session.lastActivity
             ? 'Open the session to read its latest message.' : 'Send an instruction to start this session.')}</p>}
