@@ -100,22 +100,62 @@ it('negotiates SDK stdio from outside the checkout and advertises only scoped to
   expect((await client.listResources()).resources[0].uri).toBe('codeai://local/workspace');
   await client.close();
 }, 20000);
+it('advertises new-session tools separately from addressed sends', async () => {
+  const config = getConfig();
+  const creator = await provisionGrant(config, 'Creation only', ['sessions:create']);
+  const sender = await provisionGrant(config, 'Send only', ['messages:send']);
+  const { client: creationClient } = await connect(creator.connectionPath);
+  const { client: sendClient } = await connect(sender.connectionPath);
+  const creationTools = (await creationClient.listTools()).tools;
+  const emptySchema = creationTools.find(tool => tool.name === 'create_session')?.inputSchema;
+  expect(emptySchema?.required).toContain('creationRequestId');
+  expect(emptySchema?.properties).not.toHaveProperty('firstMessage');
+  for (const name of ['start_session', 'queue_session']) {
+    const schema = creationTools.find(tool => tool.name === name)?.inputSchema;
+    expect(schema?.required).toContain('firstMessage');
+    expect(schema?.properties).not.toHaveProperty('launch');
+    expect(schema?.properties).not.toHaveProperty('sessionId');
+    await expect(sendClient.callTool({ name, arguments: {} })).rejects.toThrow('Tool is not available');
+  }
+  expect(creationTools.map(tool => tool.name)).not.toContain('send_message');
+  await expect(sendClient.callTool({ name: 'create_session', arguments: {} })).rejects.toThrow('Tool is not available');
+  const sendSchema = (await sendClient.listTools()).tools.find(tool => tool.name === 'send_message')?.inputSchema;
+  expect(sendSchema?.required).toEqual(expect.arrayContaining(['sessionId', 'participantId', 'messageId']));
+  const [checkout] = await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).list();
+  const empty = { creationRequestId: randomUUID(), checkoutId: checkout.id, provider: 'codex', execution: 'local', checkoutMode: 'current' };
+  const created = await call(creationClient, 'create_session', empty);
+  expect(created.state).toBe('empty');
+  expect((await call(creationClient, 'create_session', { ...empty, launch: 'empty' })).sessionId).toBe(created.sessionId);
+  const followUp = { sessionId: created.sessionId, participantId: created.primaryAgentId, messageId: randomUUID(), text: 'Existing session', mode: 'ask' };
+  await expect(creationClient.callTool({ name: 'send_message', arguments: followUp })).rejects.toThrow('Tool is not available');
+  await creationClient.close();
+  await sendClient.close();
+}, 20000);
 it('delivers creation, queue release, worktree placement, addressed review/correction and exact replay through a real MCP client', async () => {
   const { client } = await connect(); const config = getConfig(); const store = getSessionStore(config.dataDir);
+  const creator = await provisionGrant(config, 'Launch only', ['sessions:create']);
+  const { client: launchClient } = await connect(creator.connectionPath);
   const checkout = (await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).list())[0];
   const project = await store.createProject('MCP project', [checkout.id]); await store.createProject('Empty project', []);
   const projects = await call(client, 'list_projects'); expect(projects.rows).toHaveLength(2);
   const token = projects.rows.find((p: { id: string }) => p.id === project.id).bindingToken;
-  const first = { creationRequestId: randomUUID(), projectId: project.id, expectedProjectBindings: token, provider: 'codex', execution: 'local', checkoutMode: 'current', launch: 'run',
+  const first = { creationRequestId: randomUUID(), projectId: project.id, expectedProjectBindings: token, provider: 'codex', execution: 'local', checkoutMode: 'current',
     firstMessage: { messageId: randomUUID(), text: 'Implement a bounded example', mode: 'ask' } };
-  const created = await call(client, 'create_session', first); expect(created.accepted).toBe(true); await settled(created.sessionId);
-  const replay = await call(client, 'create_session', first); expect(replay.runId).toBe(created.runId);
-  const queued = await call(client, 'create_session', { ...first, creationRequestId: randomUUID(), launch: 'queue', firstMessage: { ...first.firstMessage, messageId: randomUUID(), text: 'Queued successor' } });
+  const created = await call(launchClient, 'start_session', first); expect(created.accepted).toBe(true); await settled(created.sessionId);
+  const replay = await call(launchClient, 'create_session', { ...first, launch: 'run' }); expect(replay.runId).toBe(created.runId);
+  const queueInput = { ...first, creationRequestId: randomUUID(), firstMessage: { ...first.firstMessage, messageId: randomUUID(), text: 'Queued successor' } };
+  const invalid = await launchClient.callTool({ name: 'queue_session', arguments: { ...queueInput, launch: 'run' } });
+  expect(invalid.isError).toBe(true);
+  const oversized = await launchClient.callTool({ name: 'queue_session', arguments: {
+    ...queueInput, firstMessage: { ...queueInput.firstMessage, text: ' '.repeat(16 * 1024) + 'Queued successor' },
+  } });
+  expect(oversized).toMatchObject({ isError: true, content: [{ text: 'MCP operation exceeds 16 KiB.' }] });
+  const queued = await call(launchClient, 'queue_session', queueInput);
   expect(queued.state).toBe('queued');
-  const worktreeInput = { ...first, creationRequestId: randomUUID(), checkoutMode: 'worktree', launch: 'queue', firstMessage: { ...first.firstMessage, messageId: randomUUID(), text: 'Independent worktree' } };
-  const worktree = await call(client, 'create_session', worktreeInput); expect(worktree.accepted).toBe(true); expect(worktree.worktree.originCheckoutId).toBe(checkout.id);
+  const worktreeInput = { ...first, creationRequestId: randomUUID(), checkoutMode: 'worktree', firstMessage: { ...first.firstMessage, messageId: randomUUID(), text: 'Independent worktree' } };
+  const worktree = await call(launchClient, 'queue_session', worktreeInput); expect(worktree.accepted).toBe(true); expect(worktree.worktree.originCheckoutId).toBe(checkout.id);
   expect(runRegistry.list(worktree.sessionId).active[0]?.queuePosition ?? 0).toBeLessThanOrEqual(2); await settled(worktree.sessionId);
-  expect((await call(client, 'create_session', worktreeInput)).sessionId).toBe(worktree.sessionId);
+  expect((await call(launchClient, 'queue_session', worktreeInput)).sessionId).toBe(worktree.sessionId);
   expect((await readWorktreeRecords(config.dataDir))).toHaveLength(1);
   const reviewerInput = { sessionId: created.sessionId, requestId: randomUUID(), provider: 'claude', role: 'reviewer' };
   const reviewer = await call(client, 'add_participant', reviewerInput);
@@ -129,6 +169,7 @@ it('delivers creation, queue release, worktree placement, addressed review/corre
   expect(saved.messages.filter(m => m.role === 'user')).toHaveLength(3);
   const archive = await call(client, 'archive_session', { sessionId: saved.id, expectedRevision: saved.revision }); expect(archive.state).toBe('archived');
   await settled(queued.sessionId); expect((await store.getSession(queued.sessionId)).messages.some(m => m.role === 'assistant')).toBe(true);
+  await launchClient.close();
   await client.close();
 }, 60000);
 it('negotiates a paired project queue grant, then releases one approved launch on archive', async () => {
@@ -161,15 +202,18 @@ it('negotiates a paired project queue grant, then releases one approved launch o
     const grant = await provisionGrant(config, 'CodeAI Dev queue', [], project.id);
     ({ client } = await connect(grant.connectionPath, { NODE_EXTRA_CA_CERTS: cert }));
     const tools = (await client.listTools()).tools;
-    expect(tools.map(tool => tool.name)).toEqual(['list_projects', 'create_session']);
-    expect(tools[1].inputSchema.properties?.launch).toMatchObject({ const: 'queue' });
+    expect(tools.map(tool => tool.name)).toEqual(['list_projects', 'queue_session']);
+    expect(tools[1].inputSchema.required).toEqual(expect.arrayContaining(['projectId', 'expectedProjectBindings', 'firstMessage']));
+    expect(tools[1].inputSchema.properties).not.toHaveProperty('checkoutId');
+    expect(tools[1].inputSchema.properties).not.toHaveProperty('launch');
     expect(client.getServerCapabilities()?.resources).toBeUndefined();
     const projects = await call(client, 'list_projects');
     expect(projects.rows.map((row: { id: string }) => row.id)).toEqual([project.id]);
     const input = { projectId: project.id, expectedProjectBindings: projects.rows[0].bindingToken, provider: 'codex', execution: 'local',
-      checkoutMode: 'current', launch: 'queue', creationRequestId: randomUUID(),
+      checkoutMode: 'current', creationRequestId: randomUUID(),
       firstMessage: { messageId: randomUUID(), text: 'Approved queued task', mode: 'ask' } };
-    const proposal = await call(client, 'create_session', input);
+    await expect(client.callTool({ name: 'start_session', arguments: input })).rejects.toThrow('Tool is not available');
+    const proposal = await call(client, 'queue_session', input);
     expect(proposal.state).toBe('confirmation_required');
     expect((await store.listSessions()).filter(session => session.projectId === project.id)).toHaveLength(1);
 
@@ -187,19 +231,21 @@ it('negotiates a paired project queue grant, then releases one approved launch o
       expect(approved.status).toBe(200);
     };
     await approve(proposal.confirmationUrl, input.creationRequestId);
-    const [queued, replay] = await Promise.all([call(client, 'create_session', input), call(client, 'create_session', input)]);
+    const [queued, replay] = await Promise.all([
+      call(client, 'queue_session', input), call(client, 'create_session', { ...input, launch: 'queue' }),
+    ]);
     expect(queued).toMatchObject({ accepted: true, state: 'queued', messageId: input.firstMessage.messageId });
     expect(replay).toMatchObject({ accepted: true, sessionId: queued.sessionId, runId: queued.runId });
     expect((await store.getSession(queued.sessionId)).messages).toHaveLength(1);
     const worktreeInput = { ...input, checkoutMode: 'worktree', creationRequestId: randomUUID(),
       firstMessage: { ...input.firstMessage, messageId: randomUUID(), text: 'Independent approved worktree' } };
-    const worktreeReview = await call(client, 'create_session', worktreeInput);
+    const worktreeReview = await call(client, 'queue_session', worktreeInput);
     await approve(worktreeReview.confirmationUrl, worktreeInput.creationRequestId);
-    const worktree = await call(client, 'create_session', worktreeInput);
+    const worktree = await call(client, 'queue_session', worktreeInput);
     expect(worktree).toMatchObject({ accepted: true, worktree: { originCheckoutId: checkout.id } });
     await settled(worktree.sessionId);
     expect((await store.getSession(worktree.sessionId)).messages.some(message => message.role === 'assistant')).toBe(true);
-    expect((await call(client, 'create_session', input)).state).toBe('queued');
+    expect((await call(client, 'queue_session', input)).state).toBe('queued');
     const earlier = await store.getSession(blocker.id);
     expect(earlier.archivedAt).toBeUndefined();
     await archiveSession(earlier.id, earlier.revision, config);

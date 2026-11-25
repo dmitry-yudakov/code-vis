@@ -39,16 +39,22 @@ Browser cookies and attached-machine bearers cannot authenticate this bridge, an
 does not authorize ordinary browser/machine routes in paired mode. Existing local access remains
 unchanged; this grant does not restrict the external agent's other tools.
 
-Explicitly add only the management capabilities the host needs:
+Add the management capabilities the host needs. Session creation and messaging have separate scopes.
 
 ```sh
-npm run mcp:grant -- "Session assistant" sessions:create sessions:archive participants:add messages:send
+npm run mcp:grant -- "Session launcher" sessions:create
+npm run mcp:grant -- "Session messenger" messages:send
 ```
 
-Ordinary grants include `projects:read` and `sessions:read`. The host sees only tools allowed by its
-grant; the server checks scopes again on dispatch and immediately before mutations. Creating a
-session includes its bound first message without `messages:send`. Any separate `send_message`,
-even to an empty session, requires `messages:send`. Participant addition does not send a message.
+Ordinary grants include `projects:read` and `sessions:read`. Add multiple scopes to one grant if the
+host needs them. `sessions:create` enables `create_session`, `start_session`, and `queue_session`.
+Starting or queueing includes the first message as part of creation. `messages:send` enables
+`send_message` to an existing session and participant, including sessions created empty.
+The server verifies the grant on dispatch and before mutations.
+
+Reconnect the MCP host to refresh the tool list on an existing connection. Older clients can
+still call `create_session` with an explicit `launch` value of `empty`, `run`, or `queue` under
+their existing grant.
 
 Open **More → Activity log** on this machine and choose **MCP** as the source to see calls from
 verified grants. Each entry shows the grant, operation, outcome and any related session or message
@@ -65,18 +71,18 @@ installation terminal. Use the stable UUID of **CodeAI Dev** as `PROJECT_UUID`.
 npm run mcp:grant -- "CodeAI Dev queue" --queue-project PROJECT_UUID
 ```
 
-This connection advertises `list_projects` for the single granted project and `create_session` with
-`launch: "queue"`. Use the project's returned `bindingToken` as `expectedProjectBindings`. Set
-`checkoutMode` to `current` or `worktree` and include a first message. CodeAI checks the project UUID
-before any session or worktree creation. The connection has no separate message or archive tool.
+This connection advertises `list_projects` for the single granted project and `queue_session`.
+Use the project's returned `bindingToken` as `expectedProjectBindings`. Set `checkoutMode` to
+`current` or `worktree` and include a first message. CodeAI checks the project UUID before creating
+a session or worktree.
 
-1. Call `create_session` with the complete request and keep both UUIDs. `confirmation_required`
+1. Call `queue_session` with the complete request and keep both UUIDs. `confirmation_required`
    returns a review link without creating a session or worktree.
 2. Open that link on a paired device. Review the project, checkout, execution, mode and exact first
    message, then select **Approve queue request**. CodeAI holds up to eight reviews per grant for
    fifteen minutes. Pending review text stays in private installation storage until submission
    or cleanup on a later request or grant revocation.
-3. Send the identical `create_session` request after confirmation. Report acceptance and the actual
+3. Send the identical `queue_session` request after confirmation. Report acceptance and the actual
    run state separately. A retained session with a rejected or uncertain first message can be retried
    with the same payload. After durable creation, exact replays use the creation receipt even after
    the review expires. Changed payloads require a new review and new request UUIDs.
@@ -94,19 +100,23 @@ archive flow.
 | `list_projects` | Optional `cursor`, `limit` (1–50) → all local projects, including empty projects, public bindings, binding tokens and active counts |
 | `list_sessions` | Optional `projectId`, `archived` (false), `cursor`, `limit` → every active session by default, including unassigned, idle, queued and failed work |
 | `read_session` | `sessionId`, optional `archived` → public roster, recent authored text, revision and bounded attention excerpts with omission metadata |
-| `create_session` | Stable `creationRequestId`, `projectId` + `expectedProjectBindings` **or** `checkoutId`, `provider`, `execution`, `checkoutMode`, `launch`, optional `role` and `firstMessage` |
+| `create_session` | Create an empty session with the creation fields below |
+| `start_session` | Create a session and submit its first message using normal scheduling. Requires the creation fields and `firstMessage` |
+| `queue_session` | Create a session and queue its first message behind earlier conversations on overlapping checkouts. Requires the creation fields and `firstMessage` |
 | `archive_session` | `sessionId`, `expectedRevision` → archive summary/revision; busy or stale sessions fail; history/worktree are retained |
 | `add_participant` | `sessionId`, stable `requestId`, `provider`, `role` → one retry-idempotent participant, without changing the main agent |
 | `send_message` | `sessionId`, explicit `participantId`, stable `messageId`, `text`, `mode`, optional `model`, `effort` → canonical acceptance/run state |
 
-`create_session.checkoutMode` is `current` or `worktree`. `launch` is `empty`, `run` or `queue`.
-`run` and `queue` require `firstMessage: {messageId, text, mode, model?, effort?}`; `empty` forbids
-it. Text uses CodeAI's existing 8,000-character bound. Repository-less projects support empty
-sessions; a first turn still needs a primary repository. Omitted model/effort values use server
+The creation fields are a stable `creationRequestId`, `projectId` plus
+`expectedProjectBindings` or a direct `checkoutId`, `provider`, `execution`,
+`checkoutMode` (`current` or `worktree`), and an optional `role`.
+`firstMessage` contains `messageId`, `text`, `mode`, and optional `model` and `effort` values.
+Text uses CodeAI's existing 8,000-character bound. Repository-less projects support empty
+sessions. A first turn requires a primary repository. Omitted model and effort values use server
 and provider defaults. Explicit choices must come from that execution's advertised health.
-No tool accepts repository paths, arbitrary URLs, security levels, commands or Git flags.
+Tools identify repositories by checkout ID and accept only the documented fields.
 
-Example arguments after reading a project's binding token and supported choices:
+Example `queue_session` arguments after reading a project's binding token and supported choices.
 
 ```json
 {
@@ -116,7 +126,6 @@ Example arguments after reading a project's binding token and supported choices:
   "provider": "codex",
   "execution": "local",
   "checkoutMode": "current",
-  "launch": "queue",
   "firstMessage": {
     "messageId": "00000000-0000-4000-8000-000000000003",
     "text": "Implement the agreed change and run its focused checks.",
@@ -125,10 +134,9 @@ Example arguments after reading a project's binding token and supported choices:
 }
 ```
 
-`run` uses normal scheduler admission and may queue for capacity. `queue` additionally waits for
-earlier conversations with saved messages on overlapping **executing checkouts** to be archived.
-A fresh independent worktree can run immediately; creating it is never deferred until queue release.
-Existing worktree capability checks and scheduler blockers apply unchanged.
+`start_session` may wait for execution capacity. `queue_session` also waits for earlier
+conversations with saved messages on overlapping **executing checkouts** to be archived.
+A fresh independent worktree is created at launch and can run immediately when capacity is available.
 
 Keep complete requests immutable after an attempt. Creation records/journals bind the complete
 launch, including empty launches; accepted messages bind recipient, text, mode and model/effort.
