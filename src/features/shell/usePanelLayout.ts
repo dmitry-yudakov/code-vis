@@ -29,6 +29,7 @@ import {
   type Pane,
   type DockCapacity,
   type PanelLayout,
+  type ProjectSideTab,
   type SideTab,
 } from './panelLayout';
 
@@ -57,21 +58,30 @@ export function useDockCapacity(shellRef: RefObject<HTMLElement | null>): { capa
   return measurement;
 }
 
-export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, repositoryAvailable: boolean, viewId?: string, hasCanvasContent?: boolean, projectScope?: string) {
+export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, repositoryAvailable: boolean, viewId?: string,
+  hasCanvasContent?: boolean, project?: { scope: string; sideTab?: ProjectSideTab }) {
   const { capacity: dockCapacity, width: shellWidth } = useDockCapacity(shellRef);
   const [layouts, setLayouts] = useState<Record<string, PanelLayout>>({});
   const [defaultLayout, setDefaultLayout] = useState(DEFAULT_PANEL_LAYOUT);
   const [projectLayouts, setProjectLayouts] = useState<Record<string, PanelLayout>>({});
-  const projectLayout = useMemo<PanelLayout>(() => projectScope && projectLayouts[projectScope] || {
+  const projectScope = project?.scope;
+  const projectSideTab = project?.sideTab ?? 'files';
+  const projectLayout = useMemo<PanelLayout>(() => ({
     ...defaultLayout, repositoryOpen: true, conversationOpen: false, canvasOpen: true,
-    filesOpen: false, maximized: null, sideTab: 'files', lastOpened: 'repository' }, [defaultLayout, projectScope, projectLayouts]);
+    filesOpen: false, maximized: null, lastOpened: 'repository',
+    ...(projectScope ? projectLayouts[projectScope] : undefined),
+    sideTab: projectSideTab,
+  }), [defaultLayout, projectScope, projectLayouts, projectSideTab]);
   const [resize, setResize] = useState<{ panel: ResizePanel; startX: number; startWidth: number }>();
   const [storageReady, setStorageReady] = useState(false);
   const layout = projectScope ? projectLayout : viewId ? layouts[viewId] || defaultLayout : defaultLayout;
   const lastOpened = layout.lastOpened;
   const setLayout = useCallback((update: (current: PanelLayout) => PanelLayout) => {
     if (projectScope) {
-      setProjectLayouts(current => ({ ...current, [projectScope]: update(current[projectScope] || projectLayout) }));
+      setProjectLayouts(current => ({
+        ...current,
+        [projectScope]: update({ ...(current[projectScope] ?? projectLayout), sideTab: projectSideTab }),
+      }));
       return;
     }
     if (!viewId) {
@@ -83,7 +93,7 @@ export function usePanelLayout(shellRef: RefObject<HTMLElement | null>, reposito
       const next = update(prior);
       return next === prior ? current : storePanelLayout(current, viewId, next);
     });
-  }, [defaultLayout, projectLayout, projectScope, viewId]);
+  }, [defaultLayout, projectLayout, projectScope, projectSideTab, viewId]);
   const shown = visiblePanes(layout, dockCapacity, shellWidth);
   const sideShown = repositoryAvailable && shown.side;
   const conversationShown = shown.conversation;

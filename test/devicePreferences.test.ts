@@ -10,6 +10,15 @@ const AGENT_A = '12121212-1212-4121-8121-121212121212';
 const AGENT_B = '34343434-3434-4343-8343-343434343434';
 
 describe('device preferences', () => {
+  it('remembers Files or Changes as the project view', () => {
+    for (const projectSideTab of ['files', 'changes'] as const) {
+      expect(parseDevicePreferences(serializeDevicePreferences({ projectSideTab }))).toEqual({ projectSideTab });
+    }
+    for (const projectSideTab of [undefined, 'history', 'reports', null, {}]) {
+      expect(parseDevicePreferences(JSON.stringify({ version: 1, projectSideTab }))).toEqual({});
+    }
+  });
+
   it('remembers a chosen participant role and ignores invalid or missing roles', () => {
     for (const role of ['orchestrator', 'coder', 'reviewer', 'tester', 'custom'] as const) {
       expect(parseDevicePreferences(serializeDevicePreferences({ role }))).toEqual({ role });

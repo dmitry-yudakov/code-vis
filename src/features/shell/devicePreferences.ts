@@ -4,6 +4,7 @@ import type {
 import { AGENT_ROLES } from '@/shared/participants';
 import { SESSION_LAUNCH_MODES, isAgentMode, isLaunchMode, type SessionLaunchMode } from '@/shared/agentModes';
 import { isolatesLocalCodex } from '@/shared/globalInstructions';
+import type { ProjectSideTab } from './panelLayout';
 import { parseModelSelection, type DeviceViewState } from './workspaceViews';
 
 export const DEVICE_PREFERENCES_STORAGE_KEY = 'code-ai:device:v1:preferences';
@@ -27,6 +28,8 @@ export interface DevicePreferences {
   models?: Partial<Record<AgentProvider, ModelSelection>>;
   /** Global instructions for a new session. Absent is Default: follow the machine's switch. */
   instructions?: GlobalInstructionsChoice;
+  /** Last Files or Changes selection in the workspace navigation. */
+  projectSideTab?: ProjectSideTab;
 }
 
 export function parseDevicePreferences(value: string | null): DevicePreferences {
@@ -47,6 +50,7 @@ export function parseDevicePreferences(value: string | null): DevicePreferences 
       ...(Object.keys(models).length ? { models } : {}),
       ...(INSTRUCTION_CHOICES.includes(parsed.instructions as GlobalInstructionsChoice)
         ? { instructions: parsed.instructions as GlobalInstructionsChoice } : {}),
+      ...(parsed.projectSideTab === 'files' || parsed.projectSideTab === 'changes' ? { projectSideTab: parsed.projectSideTab } : {}),
     };
   } catch {
     return {};

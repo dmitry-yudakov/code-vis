@@ -11,6 +11,38 @@ async function projectFixture(request: APIRequestContext, repositories = 2) {
   return { project, checkouts };
 }
 
+for (const width of [1440, 390]) {
+  test(`${width}: projects open with the last Files or Changes selection`, async ({ page, request }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const first = await projectFixture(request, 1), second = await projectFixture(request, 1);
+    const { session } = await (await request.post('/api/sessions', { data: {
+      projectId: first.project.id, provider: 'claude',
+    } })).json() as { session: PublicSession };
+    const openProject = async (project: DurableProject) => {
+      await page.getByRole('link', { name: 'Arena', exact: true }).click();
+      await page.getByRole('link', { name: `Open project ${project.name}`, exact: true }).click();
+      await expect(page).toHaveURL(`/?project=${project.id}`);
+    };
+    const repository = page.getByRole('complementary', { name: 'Repository', exact: true });
+    const files = page.getByRole('complementary', { name: 'Files', exact: true });
+
+    await page.goto(`/?session=${session.id}`);
+    await selectWorkspaceView(page, /^Repository(?:,|$)/);
+    await selectWorkspaceView(page, 'History');
+    await openProject(first.project);
+    await expect(repository).toBeVisible();
+    await page.reload();
+    await expect(repository).toBeVisible();
+
+    await selectWorkspaceView(page, 'Files');
+    await openProject(second.project);
+    await expect(files).toBeVisible();
+    await selectWorkspaceView(page, /^Repository(?:,|$)/);
+    await openProject(first.project);
+    await expect(repository).toBeVisible();
+  });
+}
+
 for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
   test(`${theme} ${width}: open an empty project, browse files and changes, then create a session`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });

@@ -252,7 +252,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   sessionChoicesRef.current = sessionChoices;
   sessionChoicesScope.current = sessionList.scope === projectScope ? projectScope : undefined;
   const panelLayout = usePanelLayout(shellRef, Boolean(sessionId) || projectWorkspace, sessionId,
-    session ? (session.history?.canvasIds.length ?? getArtifacts(session).length + getSketches(session).length) > 0 : undefined, projectWorkspace ? projectScope : undefined);
+    session ? (session.history?.canvasIds.length ?? getArtifacts(session).length + getSketches(session).length) > 0 : undefined,
+    projectWorkspace ? { scope: projectScope, sideTab: preferences.projectSideTab } : undefined);
   const [projectCheckout, setProjectCheckout] = useState<{ scope: string; id: string }>();
   const projectCheckouts = useMemo(() => (selectedProject?.repositories || [])
     .filter(binding => binding.hostId === hostId)
@@ -3383,7 +3384,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           updateCount={availableProviderUpdateCount}
           moreRef={moreMenuRef}
           onMoreToggle={(open) => { if (open) { void lifecycle.refresh(); void launcher.refreshAvailability(); } }}
-          onToggleView={(view) => compact && view === 'reports' ? panelLayout.selectSideTab(view) : panelLayout.toggleSide(view, sideView)}
+          onToggleView={(view) => {
+            if ((view === 'files' || view === 'changes') && !(panelLayout.sideShown && sideView === view)) {
+              updatePreferences(current => ({ ...current, projectSideTab: view }));
+            }
+            if (compact && view === 'reports') panelLayout.selectSideTab(view);
+            else panelLayout.toggleSide(view, sideView);
+          }}
           more={<>
             <Button onClick={() => { moreMenuRef.current?.close(); setObserverOpen(true); }}>Observer</Button>
             {compact && <>

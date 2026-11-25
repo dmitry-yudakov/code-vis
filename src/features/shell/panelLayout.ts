@@ -25,7 +25,8 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
 export type DockCapacity = 0 | 1 | 2;
 export type LastOpenedPanel = 'repository' | 'dock' | 'files' | 'canvas';
 /** What the side panel shows. Its open state keeps the stored name `repositoryOpen`. */
-export type SideTab = 'files' | 'changes' | 'history' | 'reports';
+export type SideTab = ProjectSideTab | 'history' | 'reports';
+export type ProjectSideTab = 'files' | 'changes';
 const SIDE_TABS: readonly SideTab[] = ['files', 'changes', 'history', 'reports'];
 export type Pane = 'conversation' | 'canvas' | 'side' | 'files';
 
