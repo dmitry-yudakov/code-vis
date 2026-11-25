@@ -3106,6 +3106,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               <>
                 <ProjectPicker
                   projects={projects}
+                  checkouts={immersiveMachine?.checkouts ?? checkouts}
+                  machineId={machineId}
                   value={projectId}
                   apiBase={machineApiBase(machineId, localMachineId)}
                   shortcut={!immersiveActive && !openingWorkspace && !navigationError}

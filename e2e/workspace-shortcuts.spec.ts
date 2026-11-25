@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import type { CheckoutsResponse, PublicSession } from '../src/shared/types';
+import type { CheckoutsResponse, DurableProject, PublicSession } from '../src/shared/types';
 
 async function openWorkspace(page: Page, request: APIRequestContext, session = true, count = 1) {
   const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
@@ -41,7 +41,15 @@ for (const modifier of ['Control', 'Meta']) {
       await page.setViewportSize({ width: 390, height: 900 });
       await page.addInitScript(() => localStorage.setItem('code-ai:theme', 'dark'));
     }
-    const { project } = await (await request.post('/api/projects', { data: { name: `Keyboard Destination ${modifier}` } })).json();
+    const { checkouts } = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const { project: createdProject } = await (await request.post('/api/projects', {
+      data: { name: `Keyboard Destination ${modifier}`, checkoutIds: [checkouts.find(item => item.name === 'alpha')!.id] },
+    })).json() as { project: DurableProject };
+    const logoSave = await request.patch(`/api/projects/${createdProject.id}`, {
+      data: { expectedRevision: createdProject.revision, expectedLogo: null, logo: { repositoryId: createdProject.repositories[0].id, path: 'logo.svg' } },
+    });
+    expect(logoSave.ok()).toBe(true);
+    const { project } = await logoSave.json() as { project: DurableProject };
     const { project: alternate } = await (await request.post('/api/projects', { data: { name: `Keyboard Destination ${modifier} Alternate` } })).json();
     const query = `KYBRD DST ${modifier}`;
     await openWorkspace(page, request);
@@ -55,6 +63,13 @@ for (const modifier of ['Control', 'Meta']) {
     await page.keyboard.type(query);
     await expect(projects.getByRole('option')).toHaveCount(2);
     await expect(projects.getByRole('option').first()).toContainText(project.name);
+    await expect(projects.getByRole('option').first().getByText('alpha', { exact: true })).toBeVisible();
+    const logo = projects.getByRole('button', { name: `Project logo for ${project.name}`, exact: true }).locator('img.project-logo');
+    await expect(logo).toBeVisible();
+    await expect.poll(() => logo.evaluate(node => (node as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+    await expect(projects.getByRole('button', { name: `Rename ${project.name}`, exact: true })).toBeVisible();
+    await expect(projects.getByRole('button', { name: `Delete ${project.name}`, exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('workspace-project-search.png'), animations: 'disabled' });
     await page.keyboard.press('ArrowDown');
     await expect(projects.getByRole('option', { selected: true })).toContainText(alternate.name);
     await expect(projectSearch(page)).toBeFocused();

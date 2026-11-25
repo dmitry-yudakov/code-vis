@@ -110,9 +110,17 @@ test('real branch route switches a disposable checkout and preserves conflicting
     const { checkouts } = await response.json() as CheckoutsResponse;
     const checkoutId = checkouts.find(item => item.name === path.basename(repository))!.id;
     await openRepository(page, request, checkoutId);
+    const projectBranch = page.getByRole('listbox', { name: 'Projects', exact: true })
+      .getByRole('option', { selected: true }).locator('.project-search-branch');
+    await page.keyboard.press('Control+k');
+    await expect(projectBranch).toHaveText('main');
+    await page.keyboard.press('Escape');
     await picker(page).click();
     await dialog(page).getByRole('button', { name: 'feature', exact: true }).click();
     await expect(picker(page)).toHaveAccessibleName('Switch branch: feature');
+    await page.keyboard.press('Control+k');
+    await expect(projectBranch).toHaveText('feature');
+    await page.keyboard.press('Escape');
     expect(await readFile(path.join(repository, 'file.txt'), 'utf8')).toBe('feature\n');
     await writeFile(path.join(repository, 'file.txt'), 'local work\n');
     await picker(page).click(); await dialog(page).getByRole('button', { name: 'main', exact: true }).click();

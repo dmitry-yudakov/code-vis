@@ -8,10 +8,12 @@ const state = vi.hoisted(() => ({
   resolve: vi.fn(),
   switch: vi.fn(),
   list: vi.fn(),
+  workspaceChanged: vi.fn(),
 }));
 
 vi.mock('@/server/config', () => ({
-  getConfig: () => ({ remoteAccess: state.remoteAccess, publicOrigin: state.publicOrigin, publicOrigins: state.publicOrigins, repositoriesRoot: '/repositories', repositoryDiscoveryDepth: 1 }),
+  getConfig: () => ({ remoteAccess: state.remoteAccess, publicOrigin: state.publicOrigin, publicOrigins: state.publicOrigins,
+    dataDir: '/data', repositoriesRoot: '/repositories', repositoryDiscoveryDepth: 1 }),
 }));
 vi.mock('@/server/devices/deviceAuthorization', async (original) => ({
   ...await original<typeof import('@/server/devices/deviceAuthorization')>(),
@@ -22,6 +24,7 @@ vi.mock('@/server/repository/checkoutRegistry', () => ({
 }));
 vi.mock('@/server/repository/gitBranches', () => ({ switchGitBranch: state.switch, listGitBranches: state.list }));
 vi.mock('@/server/storage/activityLog', () => ({ recordActivity: vi.fn() }));
+vi.mock('@/server/workspace/workspaceChanges', () => ({ workspaceChanged: state.workspaceChanged }));
 
 import { GET, POST } from '@/app/api/repository/branches/route';
 import { machineOperationAllowed } from '@/server/machines/machineRoutePolicy';
@@ -40,6 +43,7 @@ beforeEach(() => {
   state.publicOrigins = undefined;
   state.resolve.mockReset().mockResolvedValue({ realPath: '/repositories/alpha' });
   state.switch.mockReset().mockResolvedValue('feature');
+  state.workspaceChanged.mockClear();
 });
 
 describe('POST /api/repository/branches', () => {
@@ -49,6 +53,7 @@ describe('POST /api/repository/branches', () => {
     expect(await response.json()).toEqual({ branch: 'feature' });
     expect(state.resolve).toHaveBeenCalledWith('alpha-id');
     expect(state.switch).toHaveBeenCalledWith('/repositories/alpha', 'feature', 'refs/heads/main:abc');
+    expect(state.workspaceChanged).toHaveBeenCalledExactlyOnceWith('/data');
   });
 
   it.each([
@@ -103,6 +108,7 @@ describe('POST /api/repository/branches', () => {
     const response = await post({ checkoutId: 'alpha-id', branch: 'feature', head: 'refs/heads/main:abc' });
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: 'This checkout is busy.' });
+    expect(state.workspaceChanged).not.toHaveBeenCalled();
   });
 
   it('is not an operation an attached home machine may ask for', () => {

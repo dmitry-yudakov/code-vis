@@ -14,14 +14,18 @@ export function ProviderChips({ value, available, disabled, onChange }: {
   onChange(provider: AgentProvider): void;
 }) {
   return <Box role="group" aria-label="Provider" sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-    {(['claude', 'codex'] as const).map(provider => <Chip key={provider} component="button" type="button"
-      label={<Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        {PROVIDER_LABELS[provider]}{value === provider && <span aria-hidden="true">✓</span>}
-      </Box>} aria-pressed={value === provider}
-      icon={<ProviderLogo provider={provider} onAccent={value === provider} />}
-      color={value === provider ? 'primary' : 'default'} variant={value === provider ? 'filled' : 'outlined'}
-      disabled={disabled || !available.includes(provider)}
-      title={!available.includes(provider) ? `${PROVIDER_LABELS[provider]} needs setup on this machine` : undefined}
-      onClick={() => { if (provider !== value) onChange(provider); }} />)}
+    {(['claude', 'codex'] as const).map(provider => {
+      const selected = value === provider;
+      return <Chip key={provider} component="button" type="button"
+        label={<Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          {PROVIDER_LABELS[provider]}{selected && <span aria-hidden="true">✓</span>}
+        </Box>} aria-pressed={selected}
+        icon={<ProviderLogo provider={provider} />}
+        color={selected ? 'primary' : 'default'} variant="outlined"
+        sx={selected ? { bgcolor: 'var(--plot-wash-soft)', '&.MuiChip-clickable:hover': { bgcolor: 'var(--plot-wash)' } } : undefined}
+        disabled={disabled || !available.includes(provider)}
+        title={!available.includes(provider) ? `${PROVIDER_LABELS[provider]} needs setup on this machine` : undefined}
+        onClick={() => { if (!selected) onChange(provider); }} />;
+    })}
   </Box>;
 }

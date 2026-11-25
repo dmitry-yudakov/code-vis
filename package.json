@@ -50,6 +50,7 @@
     "@react-three/fiber": "^9.7.0",
     "@react-three/uikit": "1.0.76",
     "@react-three/xr": "^6.6.30",
+    "lowlight": "3.3.0",
     "mermaid": "^11.12.0",
     "next": "^16.3.1",
     "react": "^19.2.8",

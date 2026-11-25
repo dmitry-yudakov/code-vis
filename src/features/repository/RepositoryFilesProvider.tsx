@@ -18,6 +18,7 @@ import type { ActiveFileContext } from '@/shared/activeFileContext';
 import type { RepositoryFile } from '@/shared/repositoryFiles';
 import { localFileLink, type LocalFileLink } from './localFileLinks';
 import { MarkdownPreviewCodeBlock } from './MarkdownPreviewCodeBlock';
+import { RepositoryFileSource } from './RepositoryFileSource';
 
 type OpenFile = (link: LocalFileLink, checkoutId?: string) => void;
 interface FilesContextValue extends FileTabs {
@@ -250,11 +251,7 @@ export function RepositoryFileViewer({ link, checkoutId, repositories, apiBase, 
           : error ? <div className="repository-state error" role="alert"><strong>File unavailable</strong><p>{error}</p><Button onClick={() => setRevision(value => value + 1)}>Try again</Button></div>
           : file && (source ? <>
             {link.line && !lineExists && <p role="status">Line {link.line} is beyond this file ({lines.length} lines).</p>}
-            <pre className={`repository-file-source${wrap ? ' wrap-lines' : ''}`} aria-label="File source"><code>{lineExists ? <>
-              {link.line! > 1 && <span>{lines.slice(0, link.line! - 1).join('\n') + '\n'}</span>}
-              <mark data-file-line={link.line}>{lines.slice(link.line! - 1, link.endLine || link.line).join('\n') || ' '}</mark>
-              {(link.endLine || link.line)! < lines.length && <span>{'\n' + lines.slice(link.endLine || link.line).join('\n')}</span>}
-            </> : file.text || '(empty file)'}</code></pre>
+            <RepositoryFileSource file={file} wrap={wrap} lines={lines} line={lineExists ? link.line : undefined} endLine={link.endLine} />
           </> : <article className="assistant-blocks diff-markdown-preview" aria-label="Markdown preview">
             <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={repositoryUrlTransform} components={{
               pre: MarkdownPreviewCodeBlock,

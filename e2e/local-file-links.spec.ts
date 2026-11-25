@@ -125,10 +125,14 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
       await expect(activeFile(page).locator('[data-file-line="2"]')).toBeInViewport();
       await expect(tabs(page).getByRole('tab')).toHaveCount(1);
     }
+    await expect(activeFile(page).locator('.hljs-string').filter({ hasText: 'alpha' })).toHaveText('"alpha-fixture"');
     await showChat(page);
     await page.getByRole('button', { name: 'Line range', exact: true }).click();
     const source = activeFile(page);
     await expect(source.locator('[data-file-line="120"]')).toContainText('line123');
+    const keyword = source.locator('[data-file-line="120"] .hljs-keyword').first();
+    await expect(keyword).toHaveText('const');
+    await expect(keyword).toHaveCSS('color', theme === 'dark' ? 'rgb(210, 168, 255)' : 'rgb(123, 44, 191)');
     await expect(source.locator('[data-file-line="120"]')).toBeInViewport();
     expect(await source.locator('.diff-inspector-scroll').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await source.getByRole('button', { name: 'Wrap text', exact: true }).click();
@@ -187,6 +191,40 @@ for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
     await page.screenshot({ path: testInfo.outputPath('repository-files.png') });
   });
 }
+
+test('source highlighting preserves multiline tokens and exact text through a refresh', async ({ page, request }) => {
+  let text = '/*\r\n' + '\r\n'.repeat(118) + '\tinside the comment\r\n' + '\r\n'.repeat(3)
+    + '*/\r\nconst text = "<img src=example>";\r\n';
+  await page.route('**/api/repository/file?*', route => {
+    const path = new URL(route.request().url()).searchParams.get('path');
+    if (path === 'src/long.ts') return route.fulfill({ json: { file: { path, text } } });
+    if (path === 'missing.txt') return route.fulfill({ json: { file: { path, text: '<b>Plain text</b>\n' } } });
+    return route.fallback();
+  });
+  await openConversation(page, request);
+  await page.getByRole('button', { name: 'Line range', exact: true }).click();
+  const source = activeFile(page).getByLabel('File source');
+  await expect(source.locator('mark .hljs-comment')).toContainText('inside the comment');
+  await expect(source.locator('.hljs-string')).toHaveText('"<img src=example>"');
+  await expect(source.locator('img')).toHaveCount(0);
+  expect(await source.textContent()).toBe(text);
+
+  const large = 'const updated = 2;\n'.repeat(8000);
+  const dense = `const dense = [\n${'1,\n'.repeat(12000)}];\n`;
+  const nested = 'const nested = ' + '`value ${\n'.repeat(128) + '0' + '}`'.repeat(128) + ';\n';
+  for (const next of [large, dense, nested]) {
+    text = next;
+    await activeFile(page).getByRole('button', { name: 'Refresh file', exact: true }).click();
+    await expect.poll(() => source.textContent()).toBe(text);
+    await expect(source.locator('mark')).toBeVisible();
+    await expect(source.locator('.hljs-keyword')).toHaveCount(0);
+  }
+
+  await showChat(page);
+  await page.getByRole('button', { name: 'Missing', exact: true }).click();
+  await expect(source).toHaveText('<b>Plain text</b>');
+  await expect(source.locator('b, [class^="hljs-"]')).toHaveCount(0);
+});
 
 test('missing file recovery and outside paths retain tabs; late reads cannot replace a new selection', async ({ page, request }) => {
   await openConversation(page, request);

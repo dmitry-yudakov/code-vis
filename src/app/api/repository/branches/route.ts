@@ -5,6 +5,7 @@ import { listGitBranches, switchGitBranch } from '@/server/repository/gitBranche
 import { authorizeDeviceRequest, requestHasExactOrigin } from '@/server/devices/deviceAuthorization';
 import { webActivityRecorder } from '@/server/devices/activityActor';
 import { boundedRequestBody } from '@/server/machines/boundedBody';
+import { workspaceChanged } from '@/server/workspace/workspaceChanges';
 import { publicError, safeJsonResponse } from '@/shared/protocol';
 
 export const runtime = 'nodejs';
@@ -39,6 +40,7 @@ export async function POST(request: Request): Promise<Response> {
     const record = await webActivityRecorder(request, config.dataDir);
     const checkout = await getCheckoutRegistry(config.repositoriesRoot, config.repositoryDiscoveryDepth).resolve(parsed.data.checkoutId);
     const branch = await switchGitBranch(checkout.realPath, parsed.data.branch, parsed.data.head);
+    workspaceChanged(config.dataDir);
     await record({ action: 'git.branch', checkoutId: checkout.id });
     return safeJsonResponse({ branch });
   } catch (error) { return safeJsonResponse({ error: publicError(error) }, { status: 409 }); }

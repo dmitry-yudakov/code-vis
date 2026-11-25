@@ -111,7 +111,9 @@ for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
     await expect(providers.getByRole('button', { name: 'Claude', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(providers.getByRole('button', { name: 'Codex', exact: true })).toBeDisabled();
     for (const provider of ['claude', 'codex']) {
-      await expect(providers.locator(`[data-provider-logo="${provider}"][aria-hidden="true"]`)).toBeVisible();
+      const logo = providers.locator(`[data-provider-logo="${provider}"][aria-hidden="true"]`);
+      await expect(logo).toBeVisible();
+      await expect(logo.locator('rect')).toHaveCount(0);
     }
     await expect(providers.locator('[data-provider-logo="codex"] path'))
       .toHaveCSS('fill', theme === 'dark' ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)');

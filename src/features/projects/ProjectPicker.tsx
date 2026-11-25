@@ -5,22 +5,30 @@ import ListItemButton from '@mui/material/ListItemButton';
 import IconButton from '@mui/material/IconButton';
 import TextField from '@mui/material/TextField';
 
+import { machineApiBase } from '@/features/machines/routes';
 import { DesktopPopover } from '@/features/shell/DesktopPopover';
 import { ShellIcon } from '@/features/shell/ShellIcon';
-import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { fuzzySearch } from '@/shared/fuzzySearch';
-import type { ArenaMachineSnapshot, DurableProject } from '@/shared/types';
-import { ProjectLogoButton } from './ProjectLogo';
+import type { ArenaMachineSnapshot, CheckoutSummary, DurableProject } from '@/shared/types';
+import { ProjectLogo, ProjectLogoButton } from './ProjectLogo';
 import type { ProjectAction } from './ProjectActions';
 
 interface ProjectOption {
   key: string;
   name: string;
   detail?: string;
+  checkout?: CheckoutSummary;
   current?: boolean;
   logo?: ReactNode;
+  logoButton?: ReactNode;
   actions?: ReactNode;
   open(): void;
+}
+
+function projectCheckout(project: DurableProject, machineId: string | undefined, checkouts: ReadonlyMap<string, CheckoutSummary>) {
+  const binding = project.repositories.find(repository => repository.role === 'primary') ?? project.repositories[0];
+  return binding && binding.hostId === machineId ? checkouts.get(binding.checkoutId) : undefined;
 }
 
 function ProjectSearch({ options, children }: { options: ProjectOption[]; children?: ReactNode }) {
@@ -62,14 +70,24 @@ function ProjectSearch({ options, children }: { options: ProjectOption[]; childr
       {matches.map(option => {
         const id = `${listId}-${option.key}`;
         const selected = focused ? option === highlighted : Boolean(option.current);
+        const folder = option.checkout?.name;
+        const branch = option.checkout?.branch || option.checkout?.worktreeCreation?.branch;
         const button = <ListItemButton key={option.key} id={id} component="button" type="button"
-          role="option" aria-selected={selected} selected={selected} className="project-search-option" onClick={option.open}>
-          <span>{option.name}</span>
-          {option.detail && <small>{option.detail}</small>}
+          role="option" aria-selected={selected} selected={selected} className="project-search-option" onClick={option.open}
+          sx={{ gap: 1, px: 1, minHeight: 40, borderRadius: 1 }}>
+          {option.logo}
+          <span className="project-search-label">
+            <strong title={option.name}>{option.name}</strong>
+            {(option.detail || folder || branch) && <small>
+              {option.detail && <span title={option.detail}>{option.detail}</span>}
+              {folder && <span className="project-search-folder" title={folder}>{folder}</span>}
+              {branch && <span className="project-search-branch" title={branch}>{branch}</span>}
+            </small>}
+          </span>
           {option.current && <i aria-hidden="true">✓</i>}
         </ListItemButton>;
-        return option.logo ? <div className="project-record-option" key={option.key} role="presentation">
-          {option.logo}{button}{option.actions}
+        return option.logoButton ? <div className="project-record-option" key={option.key} role="presentation">
+          {option.logoButton}{button}{option.actions}
         </div> : button;
       })}
     </div>
@@ -79,8 +97,10 @@ function ProjectSearch({ options, children }: { options: ProjectOption[]; childr
   </>;
 }
 
-export function ProjectPicker({ projects, value, disabled, apiBase, shortcut, onChange, onCreate, onManage, onLogo }: {
+export function ProjectPicker({ projects, checkouts, machineId, value, disabled, apiBase, shortcut, onChange, onCreate, onManage, onLogo }: {
   projects: DurableProject[];
+  checkouts: CheckoutSummary[];
+  machineId?: string;
   value?: string;
   disabled?: boolean;
   apiBase?: string;
@@ -93,6 +113,7 @@ export function ProjectPicker({ projects, value, disabled, apiBase, shortcut, on
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const selected = projects.find((project) => project.id === value);
+  const checkoutById = useMemo(() => new Map(checkouts.map(checkout => [checkout.id, checkout])), [checkouts]);
 
   return (
     <div className="project-picker-with-logo">
@@ -106,9 +127,9 @@ export function ProjectPicker({ projects, value, disabled, apiBase, shortcut, on
           { key: 'loose', name: 'No project', detail: 'Loose sessions', current: !value, open: () => { onChange(undefined); close(); } },
           ...projects.map(project => ({
             key: project.id, name: project.name, current: project.id === value,
-            detail: `${project.repositories.length} ${project.repositories.length === 1 ? 'repository' : 'repositories'}`,
+            checkout: projectCheckout(project, machineId, checkoutById),
             open: () => { onChange(project.id); close(); },
-            logo: <ProjectLogoButton project={project} apiBase={apiBase} onClick={() => { close(); onLogo(project); }} />,
+            logoButton: <ProjectLogoButton project={project} apiBase={apiBase} loading="lazy" onClick={() => { close(); onLogo(project); }} />,
             actions: <>
               <IconButton type="button" aria-label={`Rename ${project.name}`} onClick={() => { close(); onManage(project, 'rename'); }}>✎</IconButton>
               <IconButton type="button" aria-label={`Delete ${project.name}`} onClick={() => { close(); onManage(project, 'delete'); }}>×</IconButton>
@@ -141,15 +162,21 @@ export function ArenaProjectPicker({ machines, shortcut, onOpen }: {
   shortcut: boolean;
   onOpen(projectId: string, machineId: string): void;
 }) {
-  const projects = machines.flatMap(({ machine, projects }) => machine.state === 'online'
-    ? projects.map(project => ({ project, machine })) : []);
+  const localMachineId = machines.find(({ machine }) => machine.kind === 'local')?.machine.id;
   return <DesktopPopover className="project-search-picker" triggerClassName="project-search-trigger" label="Projects"
     width={390} placement="bottom-start" shortcutKey={shortcut ? 'k' : undefined} focusOnKeyboardOpen
     summary={<><span>Projects</span><ShellIcon name="chevronDown" /></>}>
-    {close => <ProjectSearch options={projects.map(({ project, machine }) => ({
-      key: `${machine.id}:${project.id}`, name: project.name,
-      detail: machines.length > 1 ? machine.label : undefined,
-      open: () => { close(); onOpen(project.id, machine.id); },
-    }))} />}
+    {close => <ProjectSearch options={machines.flatMap(({ machine, projects, checkouts }) => {
+      if (machine.state !== 'online') return [];
+      const apiBase = machineApiBase(machine.id, localMachineId);
+      const checkoutById = new Map(checkouts.map(checkout => [checkout.id, checkout]));
+      return projects.map(project => ({
+        key: `${machine.id}:${project.id}`, name: project.name,
+        detail: machines.length > 1 ? machine.label : undefined,
+        checkout: projectCheckout(project, machine.id, checkoutById),
+        logo: <ProjectLogo project={project} apiBase={apiBase} loading="lazy" placeholder />,
+        open: () => { close(); onOpen(project.id, machine.id); },
+      }));
+    })} />}
   </DesktopPopover>;
 }
