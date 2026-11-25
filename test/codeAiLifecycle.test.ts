@@ -65,6 +65,27 @@ describe('the managed server’s lifecycle', () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('withholds a new restart request after dispatch fails on drained work', async () => {
+    const { bridge, deliver } = fakeBridge();
+    const lifecycle = new CodeAiLifecycle({ ...bridge, send() { throw new Error('Lost parent channel'); } }, {
+      acquireMaintenance: () => 'live-runs',
+      releaseMaintenance() {},
+      beginDrain: () => 'acquired',
+      drain: async () => {},
+    });
+    deliver({ type: 'lifecycle-state', snapshot: lifecycle.snapshot() });
+    const requestId = lifecycle.restartRequestId!;
+    expect(requestId).toEqual(expect.any(String));
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(lifecycle.start(requestId)).toMatchObject({ accepted: true, snapshot: { phase: 'suspending', operationId: requestId } });
+      await vi.waitFor(() => expect(lifecycle.snapshot()).toMatchObject({ phase: 'paused', retryable: false, operationId: requestId }));
+      expect(lifecycle.restartRequestId).toBeNull();
+    } finally {
+      report.mockRestore();
+    }
+  });
+
   it('refuses while any run is live, and once the parent’s channel is gone', () => {
     const { bridge, sent, disconnect } = fakeBridge();
     const registry = new RunRegistry();

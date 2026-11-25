@@ -54,6 +54,8 @@ export const mcpActivityLabels = {
   archive_session: 'Archive session',
   add_participant: 'Add agent',
   send_message: 'Send message',
+  get_build_and_restart_status: 'Read Build & restart status',
+  build_and_restart: 'Build & restart',
   release_listing: 'Release listing',
   subscribe: 'Subscribe to workspace',
   request: 'MCP request',

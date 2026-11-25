@@ -17,6 +17,8 @@ export class CodeAiLifecycle {
   private state: AvailableLifecycleSnapshot;
   private suspended = false;
   private drained = false;
+  private parentReady = false;
+  private nextRestartRequestId = randomUUID();
 
   constructor(private readonly bridge: ManagedBridge, private readonly lease: MaintenanceLease) {
     const { releaseId, lastOperation } = bridge.init;
@@ -37,11 +39,18 @@ export class CodeAiLifecycle {
     return this.state;
   }
 
+  get restartRequestId(): string | null {
+    // The parent first publishes after it can accept requests from this child.
+    return this.parentReady && (this.state.phase === 'idle'
+      || (this.state.phase === 'paused' && this.drained && this.state.retryable !== false))
+      ? this.nextRestartRequestId : null;
+  }
+
   /**
    * Admits one build-and-restart. The lease is the concurrency boundary: it is refused while any run
    * is live or another operation holds it, and it stays held until a build fails or this process ends.
    */
-  start(): LifecycleStart {
+  start(operationId: string = randomUUID()): LifecycleStart {
     if (!this.managed) return { accepted: false, reason: 'not-managed' };
     if (this.state.phase === 'paused' && !this.drained) return { accepted: false, reason: 'busy' };
     if (this.state.phase !== 'idle' && this.state.phase !== 'paused') return { accepted: false, reason: 'busy' };
@@ -50,7 +59,7 @@ export class CodeAiLifecycle {
       const drain = this.lease.beginDrain();
       if (drain !== 'acquired') return { accepted: false, reason: drain === 'held' ? 'busy' : 'live-runs' };
       this.suspended = true;
-      const operationId = randomUUID();
+      this.nextRestartRequestId = randomUUID();
       this.state = { ...this.state, phase: 'suspending', operationId, startedAt: new Date().toISOString(), detail: undefined, retryable: undefined };
       void this.lease.drain().then(() => {
         this.drained = true;
@@ -64,7 +73,6 @@ export class CodeAiLifecycle {
     }
     if (admission !== 'acquired') return { accepted: false, reason: admission === 'held' ? 'busy' : 'live-runs' };
     const idle = this.state;
-    const operationId = randomUUID();
     this.state = {
       available: true, phase: 'building', releaseId: idle.releaseId, operationId, startedAt: new Date().toISOString(),
       ...(idle.lastOperation ? { lastOperation: idle.lastOperation } : {}),
@@ -77,6 +85,7 @@ export class CodeAiLifecycle {
       else this.state = { ...idle, phase: 'paused', detail: 'The build could not start. Sessions remain suspended until CodeAI restarts.' };
       return { accepted: false, reason: 'not-managed' };
     }
+    this.nextRestartRequestId = randomUUID();
     return { accepted: true, snapshot: this.state };
   }
 
@@ -85,6 +94,7 @@ export class CodeAiLifecycle {
     if (!parsed.success) return;
     const message = parsed.data;
     if (message.type === 'lifecycle-state') {
+      this.parentReady = true;
       this.state = this.suspended && message.snapshot.phase === 'idle' && message.snapshot.lastOperation?.outcome === 'build-failed'
         ? { ...message.snapshot, phase: 'paused', detail: 'The build failed. Sessions remain suspended; fix the build and retry or restart CodeAI from the terminal.' }
         : message.snapshot;

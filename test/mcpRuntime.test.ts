@@ -20,6 +20,9 @@ import { runRegistry } from '@/server/runs/runRegistry';
 import { readWorktreeRecords } from '@/server/repository/managedWorktrees';
 import { archiveSession } from '@/server/conversation/archiveSession';
 import { getDeviceAuthStore } from '@/server/devices/deviceAuthStore';
+import { CodeAiLifecycle } from '@/server/lifecycle/codeAiLifecycle';
+import { readActivity } from '@/server/storage/activityLog';
+import type { AvailableLifecycleSnapshot, ServerLifecycleMessage } from '@/shared/codeAiLifecycle';
 import { GET as GET_QUEUE_REVIEW, POST as APPROVE_QUEUE_REVIEW } from '@/app/api/integrations/mcp/queue/[grantId]/[requestId]/route';
 
 const git = promisify(execFile); let root: string, server: HttpServer, origin: string, connectionPath: string, grantId: string;
@@ -130,6 +133,73 @@ it('advertises new-session tools separately from addressed sends', async () => {
   await expect(creationClient.callTool({ name: 'send_message', arguments: followUp })).rejects.toThrow('Tool is not available');
   await creationClient.close();
   await sendClient.close();
+}, 20000);
+it('exposes managed restart only by opt-in and reconciles retries across a release change', async () => {
+  const config = getConfig();
+  const ordinary = await connect();
+  const names = (await ordinary.client.listTools()).tools.map(tool => tool.name);
+  expect(names).not.toContain('build_and_restart');
+  expect(names).not.toContain('get_build_and_restart_status');
+  await expect(ordinary.client.callTool({ name: 'build_and_restart', arguments: { requestId: randomUUID() } })).rejects.toThrow('Tool is not available');
+  await ordinary.client.close();
+
+  const grant = await provisionGrant(config, 'Restart only', ['machine:restart']);
+  const { client } = await connect(grant.connectionPath);
+  expect((await client.listTools()).tools.map(tool => tool.name)).toEqual([
+    'get_workspace', 'list_projects', 'list_sessions', 'read_session', 'get_build_and_restart_status', 'build_and_restart',
+  ]);
+  const status = () => call(client, 'get_build_and_restart_status');
+  const restart = (requestId: string) => call(client, 'build_and_restart', { requestId });
+  expect(await status()).toEqual({ snapshot: { available: false, reason: 'not-managed' }, requestId: null });
+
+  const globals = globalThis as typeof globalThis & { __codeAiLifecycle?: CodeAiLifecycle };
+  const original = globals.__codeAiLifecycle;
+  const sent: ServerLifecycleMessage[] = [];
+  const install = (snapshot: AvailableLifecycleSnapshot) => {
+    let publish!: (message: unknown) => void;
+    globals.__codeAiLifecycle = new CodeAiLifecycle({
+      init: { type: 'lifecycle-init', installationRoot: root, slot: '.next-managed-a',
+        releaseId: snapshot.releaseId, lastOperation: snapshot.lastOperation },
+      connected: () => true,
+      send: message => { sent.push(message); },
+      listen: listener => { publish = listener; },
+    }, { acquireMaintenance: () => 'acquired', releaseMaintenance() {} });
+    return (state: AvailableLifecycleSnapshot) => publish({ type: 'lifecycle-state', snapshot: state });
+  };
+  try {
+    const idle = { available: true, phase: 'idle', releaseId: 'release-a' } as const;
+    const publish = install(idle);
+    expect((await status()).requestId).toBeNull(); // The new process is awaiting readiness acknowledgment.
+    publish(idle);
+    const { requestId } = await status();
+    expect(requestId).toEqual(expect.any(String));
+    const invalid = await client.callTool({ name: 'build_and_restart', arguments: { requestId, projectId: randomUUID() } });
+    expect(invalid.isError).toBe(true);
+    await expect(restart(randomUUID())).rejects.toThrow('Refresh restart status');
+    const concurrent = await Promise.all([restart(requestId), restart(requestId)]);
+    expect(concurrent.map(result => result.replayed).sort()).toEqual([false, true]);
+    expect(concurrent[0]).toMatchObject({ accepted: true, operationId: requestId, snapshot: { phase: 'building' } });
+    expect(sent).toEqual([{ type: 'lifecycle-request', operationId: requestId, action: 'build-and-restart' }]);
+    expect((await status()).requestId).toBeNull();
+
+    const finished = { ...idle, lastOperation: { operationId: requestId, outcome: 'build-failed', finishedAt: new Date().toISOString() } } as const;
+    publish(finished);
+    expect(await restart(requestId)).toMatchObject({ replayed: true, snapshot: finished });
+    const retry = await status();
+    expect(retry.requestId).not.toBe(requestId);
+    await restart(retry.requestId);
+    const next = { ...finished, releaseId: 'release-b', lastOperation: { ...finished.lastOperation, operationId: retry.requestId, outcome: 'succeeded' } } as const;
+    install(next)(next);
+    expect(await restart(retry.requestId)).toMatchObject({ replayed: true, snapshot: next });
+    await expect(restart(requestId)).rejects.toThrow('Refresh restart status');
+    expect(sent).toHaveLength(2);
+    const activity = (await readActivity(config.dataDir, 'mcp'))!.entries;
+    expect(activity.filter(entry => entry.action === 'machine.restart' && entry.requestId === requestId)).toHaveLength(1);
+    expect(activity).toContainEqual(expect.objectContaining({ action: 'mcp.call', operation: 'build_and_restart', outcome: 'replayed', requestId }));
+  } finally {
+    globals.__codeAiLifecycle = original;
+    await client.close();
+  }
 }, 20000);
 it('delivers creation, queue release, worktree placement, addressed review/correction and exact replay through a real MCP client', async () => {
   const { client } = await connect(); const config = getConfig(); const store = getSessionStore(config.dataDir);

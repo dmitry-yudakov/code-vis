@@ -59,6 +59,18 @@ beforeEach(async () => {
 afterEach(async () => { await getSessionStore(getConfig().dataDir).close(); vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
 
 describe('scoped running-server MCP bridge', () => {
+  it('checks the restart scope on the bridge before touching the lifecycle', async () => {
+    const input = { requestId: randomUUID() };
+    for (const scopes of [[], ['sessions:create', 'messages:send']] satisfies McpScope[][]) {
+      const conn = await grant(scopes);
+      expect((await call('get_build_and_restart_status', {}, conn)).status).toBe(403);
+      expect((await call('build_and_restart', input, conn)).status).toBe(403);
+    }
+    const conn = await grant(['machine:restart']);
+    expect((await call('build_and_restart', input, conn)).body.error.code).toBe('not_managed');
+    await revokeGrant(getConfig(), conn.grantId);
+    expect((await call('build_and_restart', input, conn)).status).toBe(401);
+  });
   it('rejects ordinary authorization, wrong origin/host/identity, revoked grants and unknown operations', async () => {
     const missing = request('get_workspace'); missing.headers.delete('authorization'); expect((await bridgeOperation(missing)).status).toBe(401);
     for (const [key, value] of [['Origin', 'http://evil.test'], ['Host', 'evil.test'], ['x-codeai-machine-id', randomUUID()]]) {
@@ -123,6 +135,7 @@ describe('scoped running-server MCP bridge', () => {
         firstMessage: { messageId: randomUUID(), text: 'Run focused checks', mode: 'ask' } };
       expect((await secureCall('get_workspace')).status).toBe(403);
       expect((await secureCall('send_message', { sessionId: randomUUID(), participantId: randomUUID(), ...input.firstMessage })).status).toBe(403);
+      expect((await secureCall('build_and_restart', { requestId: randomUUID() })).status).toBe(403);
       expect((await secureCall('create_session', input, otherConnection)).status).toBe(403);
       expect((await secureCall('create_session', { ...input, launch: 'run' })).status).toBe(403);
       expect((await secureCall('create_session', { ...input, projectId: foreign.id, checkoutMode: 'worktree' })).status).toBe(403);

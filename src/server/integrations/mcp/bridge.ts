@@ -8,6 +8,7 @@ import { MCP_REQUEST_BYTES, MCP_RESPONSE_BYTES, mcpBridgeRequestSchema, mcpToolA
 import type { ActivityActor, McpActivity } from '@/shared/activityLog';
 import { recordActivity } from '@/server/storage/activityLog';
 import { sessionStoreStatus } from '@/server/storage/sessionStore';
+import { getCodeAiLifecycle } from '@/server/lifecycle/codeAiLifecycle';
 import { authorizeIntegration, digest, grantExists, McpError, type McpGrant } from './grants';
 import { currentSnapshot, executionChoices, McpListings, projectRows, readSession, sessionRow, workspaceHeader } from './reads';
 import { addParticipant, archive, createSession, sendMessage } from './actions';
@@ -148,6 +149,35 @@ export async function bridgeOperation(request: Request): Promise<Response> {
         const sent = await sendMessage(parsed.data.input, config, access);
         activity.runId = sent.runId ?? undefined;
         result = sent; break;
+      }
+      case 'get_build_and_restart_status': {
+        const lifecycle = getCodeAiLifecycle();
+        result = lifecycle?.managed
+          ? { snapshot: lifecycle.snapshot(), requestId: lifecycle.restartRequestId }
+          : { snapshot: { available: false, reason: 'not-managed' }, requestId: null };
+        break;
+      }
+      case 'build_and_restart': {
+        await authorize();
+        const { requestId } = parsed.data.input;
+        const lifecycle = getCodeAiLifecycle();
+        if (!lifecycle?.managed) throw new McpError('not_managed', 'Build & restart requires npm run start:managed.', 409);
+        const snapshot = lifecycle.snapshot();
+        if (snapshot.operationId === requestId || snapshot.lastOperation?.operationId === requestId) {
+          activity.outcome = 'replayed';
+          result = { accepted: true, operationId: requestId, snapshot, replayed: true };
+          break;
+        }
+        if (lifecycle.restartRequestId !== requestId) {
+          throw new McpError('conflict', 'Refresh restart status before requesting a new build.', 409);
+        }
+        const started = lifecycle.start(requestId);
+        if (!started.accepted) {
+          throw new McpError(started.reason, 'The managed build could not start. Check restart status and the server terminal.', 409);
+        }
+        await recordActivity(config.dataDir, { actor: activity.actor, action: 'machine.restart', requestId });
+        result = { accepted: true, operationId: requestId, snapshot: started.snapshot, replayed: false };
+        break;
       }
     }
     await authorize();

@@ -40,7 +40,7 @@ async function main() {
       : descriptions[name],
     inputSchema: z.toJSONSchema(schemas[name], { io: 'input' }) as { type: 'object' },
     annotations: { readOnlyHint: name.startsWith('get_') || name.startsWith('list_') || name === 'read_session',
-      destructiveHint: ['archive_session', 'create_session', 'start_session', 'queue_session', 'send_message'].includes(name), idempotentHint: true,
+      destructiveHint: ['archive_session', 'create_session', 'start_session', 'queue_session', 'send_message', 'build_and_restart'].includes(name), idempotentHint: true,
       openWorldHint: ['create_session', 'start_session', 'queue_session', 'send_message'].includes(name) } })) }));
   server.setRequestHandler(CallToolRequestSchema, async request => {
     const name = request.params.name as ToolName;
@@ -129,5 +129,7 @@ const descriptions: Record<ToolName, string> = {
   archive_session: 'User-directed archive at the expected revision. Busy work is preserved. Restore is available in CodeAI.',
   add_participant: 'User-directed provider/role addition. Does not send or change the main agent. Keep its request UUID for retries.',
   send_message: 'Send plain text to an existing session and an existing participant in it. Keep the exact request and message UUID for retries.',
+  get_build_and_restart_status: 'Read the managed CodeAI installation’s release, build progress and latest outcome. Returns a request ID when a new build can be requested.',
+  build_and_restart: 'On explicit user request, build and restart this CodeAI installation. Use the request ID from get_build_and_restart_status. Once accepted, check status for the matching operation outcome.',
 };
 main().catch(error => { process.stderr.write(`CodeAI MCP: ${error instanceof Error ? error.message : 'Startup failed.'}\n`); process.exitCode = 1; });

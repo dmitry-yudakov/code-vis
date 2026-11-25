@@ -92,6 +92,29 @@ queue grant limits CodeAI operations. Repository access during execution follows
 provider and execution policy. Earlier conversations release the queue through the ordinary
 archive flow.
 
+## Build & restart
+
+Build & restart is off by default. Add `machine:restart` to a new grant to expose the build and
+status tools. The installation must be running a release with MCP restart support under
+`npm run start:managed`.
+
+```sh
+npm run mcp:grant -- "Build and restart" machine:restart
+```
+
+If the host already has a `codeai` connection, give the new entry a distinct name such as
+`codeai-restart`.
+
+1. Call `get_build_and_restart_status` and save its `requestId`. It also serves as the operation ID
+   if the build is accepted.
+2. When the user asks to rebuild and restart, pass that `requestId` to `build_and_restart`. CodeAI
+   builds its own installation and uses the same suspension, restart, and recovery flow as
+   **More → Build & restart**.
+3. Check status using the saved ID after a disconnect. Match `snapshot.lastOperation.operationId` to
+   report `succeeded`, `build-failed`, or `rolled-back`. If preparation pauses, report the detail
+   for the matching `snapshot.operationId`. A replay of an active or latest operation's request ID
+   returns its status. A new attempt requires a fresh ID and user request.
+
 ## Tool reference
 
 | Tool | Input and behavior |
@@ -106,6 +129,8 @@ archive flow.
 | `archive_session` | `sessionId`, `expectedRevision` → archive summary/revision; busy or stale sessions fail; history/worktree are retained |
 | `add_participant` | `sessionId`, stable `requestId`, `provider`, `role` → one retry-idempotent participant, without changing the main agent |
 | `send_message` | `sessionId`, explicit `participantId`, stable `messageId`, `text`, `mode`, optional `model`, `effort` → canonical acceptance/run state |
+| `get_build_and_restart_status` | `{}` → managed lifecycle snapshot and a request ID when a build can be requested |
+| `build_and_restart` | `requestId` from the status tool → acceptance and operation ID for a build of this CodeAI installation |
 
 The creation fields are a stable `creationRequestId`, `projectId` plus
 `expectedProjectBindings` or a direct `checkoutId`, `provider`, `execution`,
