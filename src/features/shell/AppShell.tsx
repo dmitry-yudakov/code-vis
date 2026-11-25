@@ -2646,6 +2646,24 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const runSessionLabel = (run: RunDescriptor) => sessions.find((item) => item.id === run.sessionId)?.title
     || `session ${run.sessionId.slice(0, 8)}`;
+
+  const runQueuedSession = async (targetMachineId: string, runId: string) => {
+    const key = `run-now:${targetMachineId}:${runId}`;
+    try {
+      const response = await fetch(machineApiPath('/api/agent/run-now', targetMachineId, localMachineId), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }),
+      });
+      const data = await response.json().catch(() => ({})) as { queued?: boolean; error?: string };
+      if (!response.ok || data.queued === undefined) throw new Error(data.error || 'Could not confirm Run now. Check the session and try again.');
+      notify({ key, tone: data.queued ? 'info' : 'success', message: data.queued
+        ? 'Session will start when the checkout and an execution slot are available.' : 'Session started.' });
+    } catch (error) {
+      notifyError(error, 'Could not confirm Run now. Check the session and try again.', key);
+    } finally {
+      await Promise.allSettled([arena.refresh()]);
+    }
+  };
+
   /** Cancels the run that refused a send; the refused session's outcome goes once the request is made. */
   const cancelBlockingRun = useCallback(async (refusedSessionId: string, run: RunDescriptor, label: string) => {
     try {
@@ -3534,6 +3552,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onManageProject={(machineId, project, action) => setProjectManagementTarget({ machineId, project, action })}
           onArchiveSession={archiveArenaSession}
           onRestoreSession={restoreArenaSession}
+          onRunNow={runQueuedSession}
           onDecidePermission={decideArenaPermission}
           onAcknowledge={arena.acknowledge}
           replies={arenaReplies}
@@ -3635,6 +3654,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               liveMessageId={focusedRun?.userMessageId}
               liveState={focusedRun?.state}
               queuedRuns={focusedQueue}
+              runNowId={focusedHead?.canRunNow ? focusedHead.runId : undefined}
+              onRunNow={machineId ? runId => runQueuedSession(machineId, runId) : undefined}
               queueReady={Boolean(focusedRun?.runId)}
               queueing={Boolean(sessionId && queueingSends.includes(sessionId))}
               onEditQueuedMessage={async (messageId, text, expectedText) => {

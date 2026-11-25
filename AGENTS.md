@@ -398,7 +398,9 @@ Updated 2026-11-23. When a story ships, change the line that names it; each stor
   and offers Review setup with retained evidence and exact retry after failure. Focused unit/browser
   checks, TypeScript, isolated build, both-theme desktop/phone screenshot inspection and independent
   review pass; an existing title-tab focus failure is recorded in the story.
-  Queued turns now survive process restart through Story 149; the running app has not been rebuilt or restarted.
+  Queued turns survive process restart through Story 149. The November 24 follow-up adds **Run
+  now** in Arena and the conversation so one queued session can skip the archive wait while
+  checkout locks and concurrency limits apply. The running app has not been rebuilt or restarted.
 - **Shipped:** [Story 134](stories/STORY-20261107-arena-session-tiles.md) — desktop Arena offers
   project-grouped session tiles with saved-message previews, quick replies and approvals; drafts and
   exact delivery retries survive reload. All 93 focused unit checks, 27 production-browser checks,

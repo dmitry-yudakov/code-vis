@@ -12,18 +12,29 @@ vi.mock('@/server/config', () => ({
     publicOrigins: ['https://executor.test', ...routeState.additionalOrigins],
     dataDir: routeState.dataDir,
     hostLabel: 'Executor laptop',
-    repositoriesRoot: '/repositories',
+    repositoriesRoot: routeState.dataDir,
     repositoryDiscoveryDepth: 1,
   }),
 }));
 
+vi.mock('@/server/agents/providerRegistry', () => ({
+  cachedLocalProviderHealth: async () => {
+    const health = { available: false, authenticated: 'unknown', supportedModes: [] };
+    return { claude: health, codex: health };
+  },
+}));
+
 import { POST as PAIR_MACHINE } from '@/app/api/machine/pair/route';
 import { DELETE as DETACH_MACHINE } from '@/app/api/machine/attachment/route';
+import { GET as GET_SNAPSHOT } from '@/app/api/machine/snapshot/route';
 import { GET as GET_RUNS } from '@/app/api/agent/runs/route';
 import { POST as POST_CANCEL } from '@/app/api/agent/cancel/route';
+import { POST as POST_RUN_NOW } from '@/app/api/agent/run-now/route';
 import { GET as GET_ARENA } from '@/app/api/arena/route';
 import { MachineAuthStore } from '@/server/machines/machineAuthStore';
 import { getSessionStore } from '@/server/storage/sessionStore';
+import { runRegistry } from '@/server/runs/runRegistry';
+import { RUN_NOW_CAPABILITY_HEADER, WORKSPACE_STREAM_TYPE } from '@/shared/workspaceStream';
 
 const MARKER = 'machine-route-marker';
 const HOME = { id: '11111111-1111-4111-8111-111111111111', label: 'Home desktop' };
@@ -84,6 +95,45 @@ describe.sequential('execution machine route authorization', () => {
       body: JSON.stringify({ code: challenge.code, machine: local }),
     }));
     expect(response.status).toBe(409);
+  });
+
+  it('advertises Run now to compatible homes and accepts the action from the paired home', async () => {
+    const challenge = await new MachineAuthStore(routeState.dataDir).issuePairingCode();
+    const paired = await PAIR_MACHINE(secure('/api/machine/pair', {
+      method: 'POST', body: JSON.stringify({ code: challenge.code, machine: HOME }),
+    }));
+    expect(paired.status).toBe(201);
+    const { credential } = await paired.json();
+    const runId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const execute = vi.fn(async () => undefined);
+    expect(runRegistry.reserve({ runId, sessionId, participantId: crypto.randomUUID(), providerKey: runId, checkoutId: 'repo',
+      access: 'read', mode: 'ask', waitForCheckout: true, blockedBySessions: ['earlier'], cancel: vi.fn() })).toMatchObject({ accepted: true });
+    runRegistry.activate(runId, { execute, cancelQueued: async () => undefined, saveRunNow: async () => undefined });
+    try {
+      const legacy = await GET_SNAPSHOT(secure('/api/machine/snapshot', {}, credential));
+      const legacySnapshot = await legacy.json();
+      expect(legacy.status, JSON.stringify(legacySnapshot)).toBe(200);
+      expect(legacySnapshot.runs.active.find((run: { runId: string }) => run.runId === runId)).not.toHaveProperty('canRunNow');
+      const supported = await GET_SNAPSHOT(secure('/api/machine/snapshot', {
+        headers: { Accept: WORKSPACE_STREAM_TYPE, [RUN_NOW_CAPABILITY_HEADER]: 'true' },
+      }, credential));
+      expect(supported.status).toBe(200);
+      const reader = supported.body!.getReader();
+      try {
+        const first = JSON.parse(new TextDecoder().decode((await reader.read()).value).trim());
+        expect(first.snapshot.runs.active).toContainEqual(expect.objectContaining({ runId, canRunNow: true }));
+      } finally { await reader.cancel(); }
+      const send = (auth?: string) => POST_RUN_NOW(secure('/api/agent/run-now', {
+        method: 'POST', body: JSON.stringify({ runId }),
+      }, auth));
+      expect((await send()).status).toBe(403);
+      expect(execute).not.toHaveBeenCalled();
+      expect(await (await send(credential)).json()).toEqual({ ok: true, queued: false });
+      expect(execute).toHaveBeenCalledOnce();
+    } finally {
+      runRegistry.finish(runId, false);
+    }
   });
 
   it('pairs and authorizes a machine through an additional address without browser Origin', async () => {

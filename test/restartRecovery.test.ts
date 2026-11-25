@@ -120,6 +120,36 @@ describe.sequential('planned restart recovery', () => {
     expect(response.status, await response.clone().text()).toBe(200);
   }
 
+  it('remembers Run now across restart while the checkout is locked and leaves other ideas queued', async () => {
+    const first = await send();
+    await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));
+    provider.jobs[0].finish();
+    await runRegistry.wait(first.runId);
+    const queued = await send({ waitForCheckout: true });
+    const later = await send({ waitForCheckout: true });
+    const checkoutPath = path.join(root, 'repositories', 'repo');
+    const release = runRegistry.acquireCheckoutWrite(checkoutPath)!;
+    expect(release).toBeTypeOf('function');
+    try {
+      expect(await runRegistry.runNow(queued.runId)).toEqual({ ok: true, queued: true });
+      expect(await new SuspendedTurns(dataDir).get(queued.runId)).toMatchObject({
+        state: 'ready', request: { waitForCheckout: false, messageId: queued.request.messageId },
+      });
+      expect(provider.jobs).toHaveLength(1);
+      runRegistry.finish(queued.runId, false);
+      runRegistry.finish(later.runId, false);
+    } finally { release(); }
+    await coldStart();
+    await vi.waitFor(() => expect(provider.jobs.at(-1)?.input.runId).toBe(queued.runId));
+    provider.jobs.at(-1)!.finish();
+    await runRegistry.wait(queued.runId);
+    expect(runRegistry.list(later.session.id).active[0]).toMatchObject({ state: 'queued', canRunNow: true });
+    const saved = await getSessionStore(dataDir).getSession(queued.session.id);
+    expect(saved.messages).toHaveLength(2);
+    expect(saved.messages[0]).toMatchObject({ id: queued.request.messageId, turn: { runId: queued.runId, lifecycle: 'completed' } });
+    expect((await getSessionStore(dataDir).getSession(first.session.id)).archivedAt).toBeUndefined();
+  });
+
   it('persists acceptance and restores edited waiting work across two ordinary process restarts', async () => {
     const first = await send();
     await vi.waitFor(() => expect(provider.jobs).toHaveLength(1));

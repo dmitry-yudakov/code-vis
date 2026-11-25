@@ -5,6 +5,7 @@ export const EXECUTOR_SNAPSHOT_BYTES = 8_000_000;
 /** One local machine and at most eight attached executors, plus framing. */
 export const ARENA_SNAPSHOT_BYTES = 9 * EXECUTOR_SNAPSHOT_BYTES + 1_024;
 export const WORKSPACE_STREAM_TYPE = 'application/x-ndjson';
+export const RUN_NOW_CAPABILITY_HEADER = 'X-CodeAI-Run-Now';
 
 export type WorkspaceStreamEvent<T> = { type: 'snapshot'; snapshot: T } | { type: 'heartbeat' };
 

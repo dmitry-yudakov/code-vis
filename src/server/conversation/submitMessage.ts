@@ -588,6 +588,13 @@ export async function submitMessage(
     && !activeFile && !messageAttachments.length && !reportIds.length && !imageRecords.length && !fileRecords.length;
   const activated = runRegistry.activate(runId, {
     execute,
+    saveRunNow: data.waitForCheckout ? async () => {
+      // The existing journal field keeps the request runnable across restart and release rollback.
+      const updated = { ...pendingRequest, request: { ...pendingRequest.request, waitForCheckout: false } };
+      await journal.save(updated);
+      pendingRequest = updated;
+      data.waitForCheckout = false;
+    } : undefined,
     steerQueued: canSteer ? steerQueued : undefined,
     async editQueued(text, expectedText) {
       await store.editQueuedMessage(session.id, runId, data.messageId, text, expectedText);

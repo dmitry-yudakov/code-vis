@@ -210,6 +210,7 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-card-open > .arena-state, .arena-card-content > .arena-state { flex: none; width: 88px; }
 .arena-card-open > strong, .arena-card-content > strong { flex: 0 1 34%; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
 .arena-card-archive.MuiIconButton-root { margin-right: 8px; }
+.arena-card-run-now.MuiButton-root { margin-right: 8px; white-space: nowrap; }
 .arena-card-restore { padding-right: 8px; }
 .arena-card-activity { flex: 0 1 auto; max-width: 32%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-size: 11px; }
 .arena-card-meta { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
@@ -237,11 +238,12 @@ button:where(:not([class*="Mui"])):disabled { cursor: not-allowed; opacity: .45;
 .arena-tiles .arena-card { grid-template-rows: auto 1fr; align-items: stretch; overflow: hidden; border-radius: 12px; }
 .arena-tiles .arena-card-open { grid-column: 1 / -1; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 16px 12px; }
 .arena-tiles .arena-card-open > strong { min-width: 0; padding-right: 32px; line-height: 1.5; }
+.arena-tiles .arena-card:has(.arena-card-run-now) .arena-card-open > strong { padding-right: 88px; }
 .arena-card-status { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .arena-card-status > .arena-state { flex-shrink: 0; }
 .arena-tiles .arena-card-agents { flex: 0 1 auto; }
 .arena-tiles .arena-card-meta { max-width: 100%; }
-.arena-tiles .arena-card-archive { grid-column: 2; grid-row: 1; align-self: start; margin-top: 12px; z-index: 1; }
+.arena-tiles .arena-card-archive, .arena-tiles .arena-card-run-now { grid-column: 2; grid-row: 1; align-self: start; margin-top: 12px; z-index: 1; }
 /* A disabled native button must still shield the session link underneath it. */
 .arena-tiles .arena-card-archive.Mui-disabled { pointer-events: auto; }
 .arena-tile-body { grid-column: 1 / -1; min-width: 0; padding: 0 16px 8px; display: flex; flex-direction: column; gap: 8px; }

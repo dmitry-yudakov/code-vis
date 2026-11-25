@@ -9,7 +9,7 @@ import { machineAuthorization } from '@/server/machines/machineClient';
 import { executorSnapshotSchema } from '@/shared/machineSchema';
 import type { ArenaMachineSnapshot, ArenaSnapshot, ExecutorSnapshot, ProviderHealth } from '@/shared/types';
 import {
-  EXECUTOR_SNAPSHOT_BYTES, WORKSPACE_STALE_MS, WORKSPACE_STREAM_TYPE, readWorkspaceStream,
+  EXECUTOR_SNAPSHOT_BYTES, RUN_NOW_CAPABILITY_HEADER, WORKSPACE_STALE_MS, WORKSPACE_STREAM_TYPE, readWorkspaceStream,
 } from '@/shared/workspaceStream';
 import { SnapshotFeed } from './snapshotFeed';
 import { subscribeWorkspaceChanges } from './workspaceChanges';
@@ -67,7 +67,7 @@ function subscribePeer(connection: MachineConnection, config: AppConfig, changed
     };
     try {
       const response = await fetch(`${connection.origin}/api/machine/snapshot`, {
-        headers: { Authorization: machineAuthorization(connection.credential), Accept: WORKSPACE_STREAM_TYPE },
+        headers: { Authorization: machineAuthorization(connection.credential), Accept: WORKSPACE_STREAM_TYPE, [RUN_NOW_CAPABILITY_HEADER]: 'true' },
         redirect: 'error', cache: 'no-store', signal: controller.signal,
       });
       if (!response.ok || !response.headers.get('content-type')?.includes(WORKSPACE_STREAM_TYPE)) {

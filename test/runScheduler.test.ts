@@ -46,6 +46,7 @@ interface TurnOptions {
   execution?: AgentExecution;
   waitForCheckout?: boolean;
   blockedBySessions?: string[];
+  saveRunNow?(): Promise<void>;
 }
 
 function turn(registry: RunRegistry, options: TurnOptions = {}) {
@@ -60,13 +61,14 @@ function turn(registry: RunRegistry, options: TurnOptions = {}) {
     checkoutId: options.checkoutId || `checkout:${crypto.randomUUID()}`,
     checkoutPath: options.checkoutPath,
     access: options.access || 'read',
+    mode: options.access === 'write' ? 'agent' : 'ask',
     execution: options.execution,
     waitForCheckout: options.waitForCheckout,
     blockedBySessions: options.blockedBySessions,
     cancel: vi.fn(),
   });
   expect(reservation).toMatchObject({ accepted: true, runId });
-  registry.activate(runId, { execute, cancelQueued });
+  registry.activate(runId, { execute, cancelQueued, saveRunNow: options.saveRunNow });
   return { runId, execute, cancelQueued };
 }
 
@@ -76,6 +78,64 @@ async function scheduled(): Promise<void> {
 }
 
 describe('machine run scheduler', () => {
+  it('runs the selected read-only idea alongside an earlier session while keeping other ideas parked', async () => {
+    const registry = new RunRegistry(2);
+    const save = vi.fn(async () => undefined);
+    const current = turn(registry, { checkoutPath: '/repos/a' });
+    const earlier = turn(registry, { checkoutPath: '/repos/a', waitForCheckout: true });
+    const selected = turn(registry, { checkoutPath: '/repos/a', waitForCheckout: true, saveRunNow: save });
+    expect(registry.currentRuns.find(run => run.runId === selected.runId)).toMatchObject({ state: 'queued', canRunNow: true });
+    expect(await registry.runNow(selected.runId)).toEqual({ ok: true, queued: false });
+    expect(await registry.runNow(selected.runId)).toEqual({ ok: true, queued: false });
+    expect(save).toHaveBeenCalledOnce();
+    expect(current.execute).toHaveBeenCalledOnce();
+    expect(selected.execute).toHaveBeenCalledOnce();
+    expect(earlier.execute).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed Run now save and still waits for exclusive writing access', async () => {
+    const registry = new RunRegistry(2);
+    const current = turn(registry, { checkoutPath: '/repos/a' });
+    const save = vi.fn(async () => undefined).mockRejectedValueOnce(new Error('Disk unavailable'));
+    const selected = turn(registry, { checkoutPath: '/repos/a', access: 'write', waitForCheckout: true, saveRunNow: save });
+    expect(await registry.runNow(selected.runId)).toMatchObject({ ok: false, status: 503 });
+    expect(registry.currentRuns.find(run => run.runId === selected.runId)).toMatchObject({ canRunNow: true });
+    expect(await registry.runNow(selected.runId)).toEqual({ ok: true, queued: true });
+    expect(registry.currentRuns.find(run => run.runId === selected.runId)?.canRunNow).toBeUndefined();
+    expect(selected.execute).not.toHaveBeenCalled();
+    registry.finish(current.runId); await scheduled();
+    expect(selected.execute).toHaveBeenCalledOnce();
+  });
+
+  it('keeps Run now within machine capacity and rejects a retry after cancellation', async () => {
+    const registry = new RunRegistry(1);
+    const current = turn(registry, { checkoutPath: '/repos/a' });
+    const selected = turn(registry, { checkoutPath: '/repos/a', waitForCheckout: true, saveRunNow: async () => undefined });
+    expect(await registry.runNow(selected.runId)).toEqual({ ok: true, queued: true });
+    expect(selected.execute).not.toHaveBeenCalled();
+    expect(await registry.cancel(selected.runId)).toBe('accepted');
+    expect(await registry.runNow(selected.runId)).toMatchObject({ ok: false, status: 409 });
+    registry.finish(current.runId); await scheduled();
+    expect(selected.execute).not.toHaveBeenCalled();
+  });
+
+  it('settles saving Run now before cancelling without dispatching the provider', async () => {
+    const registry = new RunRegistry(2);
+    let finishSave!: () => void;
+    const save = () => new Promise<void>(resolve => { finishSave = resolve; });
+    const selected = turn(registry, { waitForCheckout: true, blockedBySessions: ['earlier'], saveRunNow: save });
+    const saving = registry.runNow(selected.runId);
+    await scheduled();
+    const cancelling = registry.cancel(selected.runId, true);
+    registry.sessionArchived('earlier');
+    expect(selected.cancelQueued).not.toHaveBeenCalled();
+    finishSave();
+    await saving;
+    expect(await cancelling).toBe('accepted');
+    expect(selected.execute).not.toHaveBeenCalled();
+    expect(selected.cancelQueued).toHaveBeenCalledOnce();
+  });
+
   it('holds queued ideas until predecessors are archived, allowing follow-ups and unrelated work', async () => {
     const registry = new RunRegistry(4);
     const currentId = crypto.randomUUID();

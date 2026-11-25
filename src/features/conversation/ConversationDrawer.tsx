@@ -55,7 +55,7 @@ function ConversationStarters({ draft, onChoose }: { draft: DraftSource; onChoos
 
 export function ConversationDrawer({
   open, visible = open, session, onLoadEarlier, onLoadMessage, theme, focusRequest, onFocusRequestHandled, agents, activeAgent, healthyProviders, participantBusy, preview, toolActivity, permissions, decidingPermission, running, cancelReady, sendBlocked,
-  turn, liveMessageId, liveState, queuedRuns, queueing, queueReady, onQueue, permissionFeedback, onRefreshPermissions, retryBlocked,
+  turn, liveMessageId, liveState, queuedRuns, runNowId, onRunNow, queueing, queueReady, onQueue, permissionFeedback, onRefreshPermissions, retryBlocked,
   status, composer, mode, unsupportedModes, modelChoices, modelSelection, attached, reports, images, files, onRemoveFile, markCounts, onSelectDiagram, onRetry,
   agentChoice, onAgentChoiceChange, onComposer, onModeChange, onModelSelectionChange, onSelectAgent, onMakePrimary, onAddAgent, onHandoff, onSend, onCancel, onRemoveAttachment, onRemoveReport,
   onAddImages, onRemoveImage, onOpenImage, onDecidePermission, onExecutePlan, onEditQueuedMessage, onSteer, onRemoveQueued,
@@ -70,6 +70,8 @@ export function ConversationDrawer({
   onEditQueuedMessage?(messageId: string, text: string, expectedText: string): Promise<void>;
   onSteer?(runId: string, activeRunId: string, expectedText: string): Promise<void>;
   onRemoveQueued?(runId: string): Promise<void>;
+  onRunNow?(runId: string): Promise<void>;
+  runNowId?: string;
   queuedRuns?: RunDescriptor[];
   queueing?: boolean;
   queueReady?: boolean;
@@ -291,7 +293,8 @@ export function ConversationDrawer({
     const load = messageLoads[`${key}:${message.id}`];
     const queued = message.role === 'user' && message.turn?.lifecycle === 'queued'
       ? queuedRuns?.find(run => run.runId === message.turn?.runId) : undefined;
-    const messageState = message.id === liveMessageId ? liveState || 'running' : queued ? 'queued' : undefined;
+    const canRunNow = runNowId && message.role === 'user' && message.turn?.runId === runNowId && message.turn.lifecycle === 'queued';
+    const messageState = message.id === liveMessageId ? liveState || 'running' : queued || canRunNow ? 'queued' : undefined;
     return <div data-deferred-message-id={message.role === 'assistant' && inlineDeferredIds?.includes(message.id) ? message.id : undefined}>
       <ChatMessage
         message={message} theme={theme} participants={session!.participants} activeDiagramId={session?.activeDiagramId}
@@ -301,6 +304,7 @@ export function ConversationDrawer({
         onSteer={queued?.steerRunId && onSteer && !deferred && message.role === 'user'
           ? () => onSteer(queued.runId, queued.steerRunId!, message.text) : undefined}
         onRemoveQueued={queued && onRemoveQueued ? () => onRemoveQueued(queued.runId) : undefined}
+        onRunNow={canRunNow && onRunNow ? () => onRunNow(runNowId) : undefined}
         executePlanBlocked={nativeClaudeIsolationIssue({ provider: agents.find(agent => agent.id === message.authorId)?.provider || 'claude', execution: session?.execution, level: securityLevel, mode: 'agent', choice: session?.instructions })}
         onSelectDiagram={onSelectDiagram}
         detailsDeferred={deferred}

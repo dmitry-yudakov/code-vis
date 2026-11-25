@@ -1,5 +1,6 @@
 import { executorSnapshotSchema } from '@/shared/machineSchema';
 import type { ExecutorSnapshot } from '@/shared/types';
+import { RUN_NOW_CAPABILITY_HEADER } from '@/shared/workspaceStream';
 import type { MachineConnection } from './machineRegistry';
 
 const SNAPSHOT_TIMEOUT_MS = 1_500;
@@ -49,7 +50,7 @@ export async function fetchExecutorSnapshot(connection: MachineConnection): Prom
   const response = await fetch(`${connection.origin}/api/machine/snapshot`, {
     cache: 'no-store',
     redirect: 'error',
-    headers: { Authorization: machineAuthorization(connection.credential), Accept: 'application/json' },
+    headers: { Authorization: machineAuthorization(connection.credential), Accept: 'application/json', [RUN_NOW_CAPABILITY_HEADER]: 'true' },
     signal: AbortSignal.timeout(SNAPSHOT_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`Executor snapshot returned ${response.status}.`);

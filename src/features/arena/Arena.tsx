@@ -106,6 +106,7 @@ export function Arena({
   onManageProject,
   onArchiveSession,
   onRestoreSession,
+  onRunNow,
   onDecidePermission,
   onAcknowledge,
   replies,
@@ -125,6 +126,7 @@ export function Arena({
   onManageProject(machineId: string, project: DurableProject, action: ProjectAction): void;
   onArchiveSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
   onRestoreSession(machineId: string, session: ArenaSessionSummary): Promise<boolean>;
+  onRunNow(machineId: string, runId: string): Promise<void>;
   onDecidePermission(machineId: string, runId: string, requestId: string, decision: 'allow' | 'deny'): Promise<void>;
   onAcknowledge(itemIds: string[]): void;
   replies: ReturnType<typeof useArenaReplies>;
@@ -139,6 +141,7 @@ export function Arena({
   const [deciding, setDeciding] = useState<string>();
   const [archiving, setArchiving] = useState<string>();
   const [restoring, setRestoring] = useState<string>();
+  const [starting, setStarting] = useState<string[]>([]);
   const [archiveLimit, setArchiveLimit] = useState(ARENA_ARCHIVE_PAGE_SIZE);
   const [projectDrag, setProjectDrag] = useState<{ machineId: string; projectId: string; targetId?: string }>();
   const [moveAnnouncement, setMoveAnnouncement] = useState('');
@@ -292,6 +295,7 @@ export function Arena({
                       {group.sessions.map((card) => {
                         const attention = unread.filter((item) => item.machineId === machine.machine.id && item.sessionId === card.session.id).length;
                         const key = actionKey(machine.machine.id, card.session.id);
+                        const runNowId = online && card.run?.canRunNow ? card.run.runId : undefined;
                         const sharedRepository = projectCheckoutIds && projectCheckoutIds.length === card.session.repositoryCheckoutIds.length
                           && card.session.repositoryCheckoutIds.every(id => projectCheckoutIds.includes(id));
                         const facts = <>
@@ -321,14 +325,19 @@ export function Arena({
                                 {tiles ? <span className="arena-card-status">{facts}</span> : facts}
                               </ListItemButton>
                             </Tooltip>
-                            <IconButton type="button" className="arena-card-archive"
+                            {runNowId ? <Button type="button" className="arena-card-run-now" size="small" loading={starting.includes(key)}
+                              title="Skip the wait for earlier sessions to be archived."
+                              onClick={() => {
+                                setStarting(value => [...value, key]);
+                                void onRunNow(machine.machine.id, runNowId).finally(() => setStarting(value => value.filter(item => item !== key)));
+                              }}>Run now</Button> : <IconButton type="button" className="arena-card-archive"
                               aria-label={archiving === key ? 'Archiving…' : 'Archive session'}
                               disabled={!online || Boolean(card.run) || archiving === key}
                               loading={archiving === key}
                               title={!online ? 'This execution machine is offline.' : card.run ? 'Wait for the current turn to finish before archiving.' : archiving === key ? 'Archiving…' : 'Archive session'}
                               onClick={() => archive(machine.machine.id, card.session)}>
                               <ShellIcon name="archive" />
-                            </IconButton>
+                            </IconButton>}
                             {tiles && <ArenaTileBody machine={machine} localMachineId={localMachine?.machine.id} card={card} replies={replies} replyOptions={replyOptions} onDecidePermission={onDecidePermission} />}
                           </Paper>
                         );

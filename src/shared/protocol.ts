@@ -82,6 +82,7 @@ export const permissionDecisionRequestSchema = z.object({
 }).strict();
 
 export const cancelRunRequestSchema = z.object({ runId: z.string().uuid(), queuedOnly: z.boolean().optional() }).strict();
+export const runNowRequestSchema = z.object({ runId: z.string().uuid() }).strict();
 export const changeRunModeRequestSchema = z.object({ runId: z.string().uuid(), mode: agentModeSchema }).strict();
 export const editQueuedMessageRequestSchema = z.object({
   runId: z.string().uuid(),

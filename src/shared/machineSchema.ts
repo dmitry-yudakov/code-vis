@@ -92,6 +92,7 @@ const runDescriptorSchema = z.object({
   startedAt: z.number().finite().nonnegative().optional(),
   finishedAt: z.number().finite().nonnegative().optional(),
   queuePosition: z.number().int().positive().optional(),
+  canRunNow: z.literal(true).optional(),
   pendingPermissionCount: z.number().int().nonnegative(),
   pendingPermissions: z.array(runPermissionSchema).max(32),
   status: z.string().max(1_000).optional(),

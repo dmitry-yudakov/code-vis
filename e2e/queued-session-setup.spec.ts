@@ -460,6 +460,82 @@ test('a task queued inside an open conversation remains idle across reload and f
   }
 });
 
+for (const view of ['Arena', 'Conversation'] as const) {
+  test(`Run now starts the queued session from ${view} while earlier work is running`, async ({ page, request }, testInfo) => {
+    await page.setViewportSize({ width: view === 'Arena' ? 1280 : 390, height: 844 });
+    await page.addInitScript(theme => {
+      localStorage.setItem('code-ai:theme', theme);
+      localStorage.setItem('code-ai:device:arena-layout', 'tiles');
+    }, view === 'Arena' ? 'light' : 'dark');
+    const catalog = await (await request.get('/api/checkouts')).json() as CheckoutsResponse;
+    const checkout = catalog.checkouts.find(item => item.relativePath === 'alpha')!;
+    await archiveEarlierFixtureSessions(request, checkout.id);
+    const project = (await (await request.post('/api/projects', { data: { name: `Run now ${view}`, checkoutIds: [checkout.id] } })).json()).project as DurableProject;
+    const create = async () => (await (await request.post('/api/sessions', {
+      data: { projectId: project.id, provider: 'claude' },
+    })).json()).session as PublicSession;
+    const earlier = await create();
+    const selected = await create();
+    const runIds: string[] = [];
+    try {
+      await page.goto(view === 'Arena' ? '/arena' : `/?session=${selected.id}`);
+      const messageId = crypto.randomUUID();
+      const runs = await page.evaluate(async ({ earlier, selected, messageId }) => {
+        const send = async (data: object) => {
+          const response = await fetch('/api/agent/message', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ diagramAttachments: [], ...data }) });
+          const accepted = { id: response.headers.get('X-CodeAI-Run-Id')!, state: response.headers.get('X-CodeAI-Run-State') };
+          await response.body?.cancel();
+          return accepted;
+        };
+        return [
+          await send({ sessionId: earlier.id, participantId: earlier.primaryAgentId,
+            messageId: crypto.randomUUID(), text: 'Concurrent slot Run now predecessor', mode: 'ask' }),
+          await send({ sessionId: selected.id, participantId: selected.primaryAgentId, messageId,
+            text: 'Review the selected idea', mode: 'plan', waitForCheckout: true,
+            fileAttachments: [{ name: 'idea.txt', text: 'Original evidence' }] }),
+        ];
+      }, { earlier, selected, messageId });
+      runIds.push(...runs.map(run => run.id));
+      expect(runs.map(run => run.state)).toEqual(['running', 'queued']);
+      await page.reload();
+      const region = view === 'Arena'
+        ? page.locator('.arena-card').filter({ has: page.locator(`a[href*="session=${selected.id}"]`) })
+        : page.getByRole('complementary', { name: 'Conversation', exact: true });
+      const button = region.getByRole('button', { name: 'Run now', exact: true });
+      await expect(button).toBeInViewport();
+      await page.screenshot({ path: testInfo.outputPath('run-now.png'), animations: 'disabled' });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (view === 'Conversation') {
+        await page.route('**/api/agent/run-now', route => route.fulfill({ status: 503, json: { error: 'Save unavailable. Try again.' } }), { times: 1 });
+        await button.click();
+        await expect(page.getByRole('region', { name: 'Notifications' }).getByRole('alert')).toContainText('Save unavailable. Try again.');
+        await expect(button).toBeEnabled();
+      }
+      const response = page.waitForResponse(value => value.url().endsWith('/api/agent/run-now') && value.ok());
+      await button.click();
+      const accepted = await response;
+      expect(accepted.request().postDataJSON()).toEqual({ runId: runs[1].id });
+      expect(await accepted.json()).toEqual({ ok: true, queued: false });
+      await expect(button).toHaveCount(0);
+      await expect.poll(async () => {
+        const saved = (await (await request.get(`/api/sessions/${selected.id}`)).json()).session as PublicSession;
+        return saved.messages.find(message => message.role === 'assistant')?.status;
+      }).toBe('complete');
+      const discovery = await (await request.get('/api/agent/runs')).json() as RunDiscovery;
+      const started = discovery.recent.find(run => run.runId === runs[1].id)!;
+      const predecessor = [...discovery.active, ...discovery.recent].find(run => run.runId === runs[0].id)!;
+      expect(started.startedAt).toBeLessThan(predecessor.finishedAt ?? Date.now());
+      const saved = (await (await request.get(`/api/sessions/${selected.id}`)).json()).session as PublicSession;
+      expect(saved.messages).toHaveLength(2);
+      expect(saved.messages[0]).toMatchObject({ id: messageId, mode: 'plan', fileAttachments: [{ name: 'idea.txt', text: 'Original evidence' }] });
+      expect((await (await request.get(`/api/sessions/${earlier.id}`)).json()).session.archivedAt).toBeUndefined();
+    } finally {
+      for (const runId of runIds.filter(Boolean)) await request.post('/api/agent/cancel', { data: { runId } });
+    }
+  });
+}
+
 for (const theme of ['light', 'dark']) for (const width of [1280, 390]) {
   test(`edit a queued idea and retain failed saves: ${theme} ${width}`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 844 });

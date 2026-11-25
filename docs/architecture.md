@@ -616,10 +616,12 @@ stored copy and no route that serves one.
    turn does not advance this idea queue. Ordinary follow-ups, Push, Undo and worktree creation can
    proceed while ideas wait. A successful manual or inactivity archive releases successors; they
    then take exclusive checkout access even in Ask/Plan, retaining it through mode changes. Provider
-   permissions still follow the mode. The bounded scheduler owns cancellation and browser
-   reconnection; accepted waiting requests are also journaled on disk and restored after process
-   restart, with execution claimed before provider/checkpoint effects. Acceptance headers report the
-   run id and current state. `POST /api/agent/queued-message` compares and saves queued message text
+   permissions still follow the mode. **Run now** saves the selected session's switch to ordinary
+   scheduling before dispatch, so it can share read access and can start while earlier sessions
+   remain active. Checkout locks and machine capacity still govern dispatch. The bounded scheduler
+   owns cancellation and browser reconnection. Accepted waiting requests are journaled on disk and
+   restored after process restart, with execution claimed before provider/checkpoint effects.
+   Acceptance headers report the run id and current state. `POST /api/agent/queued-message` compares and saves queued message text
    under a promotion guard, retaining evidence, mode and identity; cancellation waits for this save.
    A text-only follow-up for the same Codex participant and mode can **Steer** the active turn.
    `POST /api/agent/steer` compares the saved text and targets the exact CodeAI run and Codex turn.
@@ -682,7 +684,8 @@ storage/invalidation; Story 9 will expose model queries as Mermaid lenses.
 
 `GET /api/agent/runs` discovers queued, running, needs-you, and recently finished descriptors.
 `GET /api/agent/stream` reattaches a detached browser by run id; `POST /api/agent/cancel` ends
-queued or executing work; `POST /api/agent/permission` resolves a pending approval card.
+queued or executing work. `POST /api/agent/run-now` releases the selected turn's archive wait.
+`POST /api/agent/permission` resolves a pending approval card.
 
 **A run outlives the page that started it.** Closing the tab or reloading only detaches the
 browser. Reopening the session replays activity, any pending approval, and the answer. A

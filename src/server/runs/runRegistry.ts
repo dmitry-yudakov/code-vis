@@ -12,6 +12,7 @@ export type PermissionDecisionOutcome = 'accepted' | 'unknown-run' | 'unknown-re
 export type RunCancelOutcome = 'accepted' | 'unknown-run' | 'started' | 'failed';
 export type RunAccess = 'read' | 'write';
 export type RunModeOutcome = { ok: true } | { ok: false; status: number; error: string };
+type RunNowOutcome = { ok: true; queued: boolean } | Extract<RunModeOutcome, { ok: false }>;
 type QueuedSteer = (activeRunId: string, expectedText: string, steer: SteerTurn) => Promise<RunModeOutcome>;
 
 /** How long a finished run stays directly replayable after its result becomes canonical. */
@@ -31,10 +32,12 @@ interface RunRecord {
   access: RunAccess;
   queueIfBusy?: boolean;
   waitForCheckout?: boolean;
+  skipArchiveWait?: true;
+  saveRunNow?(): Promise<void>;
   blockedBySessions: Set<string>;
   provisionalBlockers: Set<string>;
   editQueued?(text: string, expectedText: string): Promise<void>;
-  editing?: Promise<void>;
+  queueMutation?: Promise<void>;
   steerQueued?: QueuedSteer;
   steer?: SteerTurn;
   steering?: Promise<RunModeOutcome>;
@@ -322,7 +325,7 @@ export class RunRegistry implements MaintenanceLease {
           if (!run.activated || run.suspending) continue;
           run.suspending = true;
           const suspension = Promise.resolve().then(async () => {
-            await run.editing;
+            await run.queueMutation;
             await run.steering;
             await run.modeChange;
             await run.cancelPromise;
@@ -387,6 +390,7 @@ export class RunRegistry implements MaintenanceLease {
   activate(runId: string, input: {
     execute(): Promise<void>;
     cancelQueued(): Promise<void>;
+    saveRunNow?(): Promise<void>;
     editQueued?(text: string, expectedText: string): Promise<void>;
     steerQueued?: QueuedSteer;
   }): boolean {
@@ -395,6 +399,7 @@ export class RunRegistry implements MaintenanceLease {
     run.activated = true;
     run.execute = input.execute;
     run.cancelQueued = input.cancelQueued;
+    run.saveRunNow = input.saveRunNow;
     run.editQueued = input.editQueued;
     run.steerQueued = input.steerQueued;
     for (const other of this.liveByRunId.values()) other.provisionalBlockers.delete(run.sessionId);
@@ -499,7 +504,7 @@ export class RunRegistry implements MaintenanceLease {
 
   private canSteer(queued: RunRecord, active: RunRecord): boolean {
     return !this.maintenance && queued.activated && queued.startedAt === undefined && Boolean(queued.steerQueued)
-      && !queued.cancelling && !queued.cancelBlocked && !queued.editing && !queued.modeChange && !queued.steering
+      && !queued.cancelling && !queued.cancelBlocked && !queued.queueMutation && !queued.modeChange && !queued.steering
       && active.sessionId === queued.sessionId && active.participantId === queued.participantId
       && active.mode === queued.mode && (active.state === 'running' || active.state === 'needs-you')
       && Boolean(active.steer) && !active.cancelling && !active.modeChange && !active.steering;
@@ -509,7 +514,7 @@ export class RunRegistry implements MaintenanceLease {
   async changeMode(runId: string, mode: AgentMode): Promise<RunModeOutcome> {
     const run = this.liveByRunId.get(runId);
     const unavailable: RunModeOutcome = { ok: false, status: 409, error: 'That turn can no longer change mode.' };
-    if (this.maintenance || !run?.activated || !run.changeMode || run.steering) return unavailable;
+    if (this.maintenance || !run?.activated || !run.changeMode || run.steering || run.queueMutation) return unavailable;
     const operation = (run.modeChange ?? Promise.resolve({ ok: true } as const)).then(async () => {
       if (this.liveByRunId.get(runId) !== run || run.cancelling) return unavailable;
       const result = await run.changeMode!(mode);
@@ -657,14 +662,14 @@ export class RunRegistry implements MaintenanceLease {
     if (!run) return 'unknown-run';
     if (queuedOnly && run.startedAt !== undefined) return 'started';
     if (run.cancelPromise) return run.cancelPromise;
-    if (run.editing || run.startedAt === undefined && (run.modeChange || run.steering)) {
+    if (run.queueMutation || run.startedAt === undefined && (run.modeChange || run.steering)) {
       run.cancelling = true;
-      const cancellation = Promise.allSettled([run.editing, run.modeChange, run.steering]).then(() => {
+      const cancellation = Promise.allSettled([run.queueMutation, run.modeChange, run.steering]).then(() => {
         run.cancelPromise = undefined;
         run.cancelling = false;
         return this.cancel(runId, queuedOnly);
       });
-      // All callers share the edit wait; none can clear another cancellation's promotion guard.
+      // All callers share the save wait; none can clear another cancellation's promotion guard.
       run.cancelPromise = cancellation;
       return cancellation;
     }
@@ -772,18 +777,52 @@ export class RunRegistry implements MaintenanceLease {
     this.notifyChanges();
   }
 
+  /** Release the archive dependency only. The normal scheduler still owns dispatch. */
+  async runNow(runId: string): Promise<RunNowOutcome> {
+    const run = this.liveByRunId.get(runId) ?? this.recentByRunId.get(runId);
+    if (!run?.activated) return { ok: false, status: 404, error: 'That queued turn is no longer available.' };
+    if (run.cancelling || run.cancelBlocked || run.state === 'finished' && run.startedAt === undefined) {
+      return { ok: false, status: 409, error: 'That queued turn was cancelled or is no longer available.' };
+    }
+    if (run.skipArchiveWait) return { ok: true, queued: run.state === 'queued' && run.startedAt === undefined };
+    if (this.maintenance || !this.canRunNow(run) || run.queueMutation || run.modeChange) {
+      return { ok: false, status: 409, error: 'Run now is unavailable for this turn. Check its current state and try again.' };
+    }
+    const saving = Promise.resolve().then(async () => {
+      await run.saveRunNow!();
+      run.skipArchiveWait = true;
+      run.waitForCheckout = false;
+      run.blockedBySessions.clear();
+      run.provisionalBlockers.clear();
+      if (run.mode) run.access = changesCheckout(run.mode) ? 'write' : 'read';
+      run.lastQueuePosition = undefined;
+    }).catch(() => undefined);
+    run.queueMutation = saving;
+    await saving;
+    run.queueMutation = undefined;
+    this.schedule();
+    this.notifyChanges();
+    return run.skipArchiveWait ? { ok: true, queued: run.state === 'queued' }
+      : { ok: false, status: 503, error: 'Could not confirm Run now. Check the session and try again.' };
+  }
+
+  private canRunNow(run: RunRecord): boolean {
+    return run.state === 'queued' && run.startedAt === undefined && !run.cancelling && !run.cancelBlocked
+      && Boolean(run.waitForCheckout && run.saveRunNow);
+  }
+
   async editQueuedMessage(runId: string, text: string, expectedText: string): Promise<RunModeOutcome> {
     const run = this.liveByRunId.get(runId);
-    if (this.maintenance || !run?.activated || !run.editQueued || run.startedAt !== undefined || run.cancelling || run.cancelBlocked || run.editing || run.steering) {
+    if (this.maintenance || !run?.activated || !run.editQueued || run.startedAt !== undefined || run.cancelling || run.cancelBlocked || run.queueMutation || run.steering) {
       return { ok: false, status: 409, error: 'This message can only be edited before its queued turn starts. Reload the session to check its state.' };
     }
     const editing = Promise.resolve().then(() => run.editQueued!(text, expectedText));
-    run.editing = editing;
+    run.queueMutation = editing;
     try {
       await editing;
       return { ok: true };
     } finally {
-      run.editing = undefined;
+      run.queueMutation = undefined;
       this.schedule();
     }
   }
@@ -841,7 +880,7 @@ export class RunRegistry implements MaintenanceLease {
     while (this.runningCount() < this.maxConcurrentRuns) {
       const index = this.queue.findIndex((runId) => {
         const run = this.liveByRunId.get(runId);
-        return Boolean(run?.activated && !run.cancelling && !run.cancelBlocked && !run.editing && !run.modeChange && !run.steering && run.execute && this.eligible(run));
+        return Boolean(run?.activated && !run.cancelling && !run.cancelBlocked && !run.queueMutation && !run.modeChange && !run.steering && run.execute && this.eligible(run));
       });
       if (index < 0) break;
       const [runId] = this.queue.splice(index, 1);
@@ -879,7 +918,7 @@ export class RunRegistry implements MaintenanceLease {
         phase: 'queued',
         label: run.cancelBlocked
           ? `Queued · position ${position} · cancellation must be retried`
-          : `Queued · position ${position}${run.blockedBySessions.size ? ' · waiting for earlier sessions to be archived' : ''}`,
+          : `Queued · position ${position}${run.blockedBySessions.size ? ' · waiting for earlier sessions to be archived' : run.skipArchiveWait ? ' · waiting for checkout or capacity' : ''}`,
       });
     });
   }
@@ -897,6 +936,7 @@ export class RunRegistry implements MaintenanceLease {
       ...(run.startedAt === undefined ? {} : { startedAt: run.startedAt }),
       ...(run.finishedAt === undefined ? {} : { finishedAt: run.finishedAt }),
       ...(queuePosition && queuePosition > 0 ? { queuePosition } : {}),
+      ...(this.canRunNow(run) ? { canRunNow: true as const } : {}),
       pendingPermissionCount: run.pendingPermissions.size,
       pendingPermissions: [...run.pendingPermissions.values()],
       ...(run.status ? { status: run.status } : {}),

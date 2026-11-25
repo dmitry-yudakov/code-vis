@@ -733,6 +733,8 @@ export interface RunDescriptor {
   finishedAt?: number;
   /** One-based and present only while queued. */
   queuePosition?: number;
+  /** The queued session can skip its archive wait. */
+  canRunNow?: true;
   pendingPermissionCount: number;
   /** Safe, answerable summaries for the host-wide Inbox. */
   pendingPermissions: RunPermissionSummary[];

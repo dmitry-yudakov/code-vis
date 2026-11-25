@@ -297,3 +297,17 @@ the preceding `.next-e2e` build at the same selected-tab focus check. This follo
 keyboard behavior unchanged. Verification uses fixture providers; physical devices and real
 provider/attached-machine transport were not exercised. The running installation has not been
 rebuilt or restarted.
+
+## Run now — November 24, 2026
+
+Select **Run now** on a queued session in Arena or beside its queued message. The selected turn
+switches to ordinary scheduling with the same message, evidence and mode. Earlier conversations
+can stay open or running. Ask and Plan can share checkout reads. Writing turns and a machine
+at capacity wait until the scheduler can admit them. The choice survives restart in the existing
+waiting journal. Older homes can still read paired executor snapshots.
+
+All 106 focused unit checks, seven Chrome checks, TypeScript and the isolated production build
+pass. They cover concurrent reads, capacity and checkout exclusion, failed-save retry, cancellation,
+restart, legacy snapshots and paired-machine authorization. Chrome exercises both action locations
+with the fixture provider, including retry from the conversation. Real providers and a live
+paired-machine connection were outside this verification.

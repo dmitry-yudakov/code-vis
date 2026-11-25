@@ -9,7 +9,7 @@ export function machineOperationAllowed(method: string, segments: readonly strin
     'agent/runs', 'agent/stream', 'agent/checkpoint',
   ].includes(exact)) return true;
   if (normalizedMethod === 'POST' && [
-    'projects', 'sessions', 'agent/message', 'agent/cancel', 'agent/permission', 'agent/undo', 'agent/mode', 'agent/queued-message', 'agent/steer',
+    'projects', 'sessions', 'agent/message', 'agent/cancel', 'agent/permission', 'agent/undo', 'agent/mode', 'agent/queued-message', 'agent/steer', 'agent/run-now',
   ].includes(exact)) return true;
   if (segments.length === 2 && segments[0] === 'projects' && UUID.test(segments[1])) {
     return ['GET', 'PATCH', 'DELETE'].includes(normalizedMethod);
