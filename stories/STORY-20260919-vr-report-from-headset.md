@@ -194,7 +194,7 @@ check passes.
   cancels before ending the session, and unmounting cancels too, so nothing captures from a stale
   renderer or after the workspace is gone. The capture and upload then run as before: the selection
   is read as the frame is sent, and Story 63 places the accepted report.
-- **Docs.** README's [Report a problem from the headset](../README.md#report-a-problem-from-the-headset)
+- **Docs.** [Report a problem from the headset](../docs/user-guide.md#report-a-problem-from-the-headset)
   and [architecture.md](../docs/architecture.md) describe the countdown and cancellation.
 
 ## Verification record

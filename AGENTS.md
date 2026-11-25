@@ -637,7 +637,7 @@ All commands run from the repository root.
 
 ```sh
 npm run dev        # Next.js dev server on 3023 (Turbopack, output in .next/dev)
-npm run devs       # the same over HTTPS on the LAN for a headset — unauthenticated, see README
+npm run devs       # the same over HTTPS on the LAN for a headset — unauthenticated, see docs/user-guide.md
 npm start          # production server on 3023, after npm run build
 npm run start:remote # paired personal-device HTTPS server, after npm run build
 npm run start:managed # the same server under a parent that can build, swap, and roll back releases
@@ -671,7 +671,7 @@ git-ignored as Next.js recommends: every dev, build, and e2e run points it at it
 Optional server diagnostics: `CODEAI_LOG_DIR=./logs` copies stdout/stderr from the normal server
 commands into Git-ignored `logs/server.log` and numbered archives (`.1` is newest). Read these
 paths explicitly when investigating runtime problems; `rg --files` may skip ignored logs.
-`CODEAI_DEBUG_AGENT=1` includes existing compact agent diagnostics. See README's Server log files.
+`CODEAI_DEBUG_AGENT=1` includes existing compact agent diagnostics. See [Server log files](docs/user-guide.md#server-log-files).
 
 ## Source ownership
 
@@ -783,7 +783,7 @@ importing file's own directory; keep `./…` for same-directory siblings.
   that later writing turns load. An explicitly isolated session cannot run Native Claude writing.
 - Remote personal-device access must use `start:remote`, explicitly configured exact HTTPS origins,
   a certificate the device trusts, and a paired credential. Ordinary HTTP/startup fails closed in paired mode. The
-  one exception is the README's development-only headset loop (`npm run devs`): it is
+  one exception is the [development-only headset loop](docs/user-guide.md#develop-against-a-headset) (`npm run devs`): it is
   unauthenticated by design and for a network where every device is trusted. Do not extend it.
 - Never read, copy, log, or persist provider credentials. `.env*` other than `.env.example` is
   ignored and must stay untracked.
@@ -828,7 +828,8 @@ analyzer paths) apply only inside `legacy/` and must not be carried into `src/`.
 
 ## Docs
 
-- [README](README.md) — product behavior, safety model, configuration
+- [README](README.md) — product overview, quick start, and roadmap
+- [User guide](docs/user-guide.md) — product behavior, safety model, and configuration
 - [Architecture](docs/architecture.md) — the current client/server boundary
 - [Vision — the arena](docs/vision.md) — the main product direction (aspirational)
 - [Vocabulary](docs/vocabulary.md) — naming authority; use these words in new code, UI, and docs

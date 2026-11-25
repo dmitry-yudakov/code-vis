@@ -970,8 +970,9 @@ It checks the exact mono PCM16 WAV contract, limits streamed uploads and their d
 one request, and calls the configured HTTP loopback Whisper origin with redirects disabled.
 Audio remains in memory. Browser abort and the 90-second deadline close the Whisper request;
 the documented engine version cancels on disconnect. Authorization is checked again before
-returning text. No audio or transcript is added to XR diagnostics. See the README's voice setup
-for the tested engine revision and the still-pending physical Quest validation.
+returning text. No audio or transcript is added to XR diagnostics. See the
+[voice setup](user-guide.md#local-voice-input-in-vr) for the tested engine revision and pending
+physical Quest validation.
 
 The response policy `xr-spatial-tracking=(self)` grants only the same origin. On a personal device,
 the shell passes immersive authorization only after the existing pairing and secure-transport gate,
@@ -1044,5 +1045,5 @@ is in [vision.md](vision.md), with record-level engineering notes in
 `src/server/config.ts` resolves every setting as
 `CODEAI_<NAME> ?? CODEAI_WEB2_<NAME> ?? default`, treating an empty assignment as unset on either
 name. Validation runs on whichever raw value is selected, so an invalid neutral value fails rather
-than falling back. See [.env.example](../.env.example) and the
-[README](../README.md#configuration).
+than falling back. See [.env.example](../.env.example) and
+[the user guide](user-guide.md#configuration).

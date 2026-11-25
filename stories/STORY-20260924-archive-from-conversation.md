@@ -182,7 +182,8 @@ themes. Independent read-only review found no functional issues.
   once a different view is shown
   ([ImmersiveWorkspace.tsx:90](../src/features/shell/immersive/ImmersiveWorkspace.tsx#L90)), because
   each view keeps its own layout.
-- **Docs.** [README.md](../README.md#L206) in the Session tools and Arena paragraphs.
+- **Docs.** [Quest and immersive WebXR](../docs/user-guide.md#quest-and-immersive-webxr) and
+  [Arena and Inbox](../docs/user-guide.md#arena-and-inbox).
 - **Tests.** [canvas.spec.ts:856](../e2e/canvas.spec.ts#L856) runs against the real e2e server with
   the fake Claude. [immersive.spec.ts:1010](../e2e/immersive.spec.ts#L1010) uses routed fixtures for
   a local turn, a turn seen only through the Arena poll, a newer revision from the Arena, and an

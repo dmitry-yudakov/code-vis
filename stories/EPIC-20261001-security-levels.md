@@ -2,7 +2,7 @@
 
 **Status:** Draft · **Updated:** October 1, 2026 · **Owns:** how much a machine lets Claude and Codex
 do on their own, and whose rules decide it. It changes the Local half of the
-[safety model](../README.md#safety-model). Docker execution keeps
+[safety model](../docs/user-guide.md#safety-model). Docker execution keeps
 [its own contract](../docs/docker-execution.md).
 
 ## Motivation

@@ -280,8 +280,8 @@ The owner requested that the commit exclude snapshot images. Generated PNGs are 
 Git-ignored and retained locally. Ordinary browser behavior/geometry assertions run by default;
 `CODEAI_E2E_VISUAL=1` enables screenshot comparisons and the deliberate mismatch proof. A fresh
 checkout first generates and reviews its local references with `--update-snapshots`, then compares
-against them. [README](../README.md) gives the exact commands. This means a clone does not carry
-the original reviewed pixels; local generation establishes a new reference set. The commit
+against them. [The user guide](../docs/user-guide.md#start) gives the exact commands. This means a
+clone does not carry the original reviewed pixels; local generation establishes a new reference set. The commit
 verification temporarily moved all PNG references outside the repository: the MUI browser suite
 passed **31 cases**, with only the intentional visual mismatch proof skipped, and created no
 snapshot directory. TypeScript passed afterward. The documented generation command passed
